@@ -9,6 +9,7 @@ import com.secondhand.mall.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,7 +28,7 @@ public class OrderService {
     }
 
     @Transactional
-    public Order createOrder(String buyerUsername, Long productId, double orderPrice,
+    public Order createOrder(String buyerUsername, Long productId, BigDecimal orderPrice,
                              String productName, String category, String imageUrl,
                              String receiverName, String receiverPhone, String receiverAddress,
                              String paymentMethod) {
@@ -50,17 +51,17 @@ public class OrderService {
         User buyer = userRepository.findByUsername(buyerUsername)
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
 
-        if (buyer.getBalance() < orderPrice) {
-            throw new RuntimeException("余额不足，当前余额: ¥" + String.format("%.2f", buyer.getBalance()));
+        if (buyer.getBalance().compareTo(orderPrice) < 0) {
+            throw new RuntimeException("余额不足，当前余额: ¥" + buyer.getBalance().toPlainString());
         }
 
-        double price = product.getSecondHandPrice();
-        if (Math.abs(orderPrice - price) > 0.01) {
+        BigDecimal price = product.getSecondHandPrice();
+        if (orderPrice.subtract(price).abs().compareTo(new BigDecimal("0.01")) > 0) {
             throw new RuntimeException("价格不一致，请刷新后重试");
         }
 
         // 扣减买家余额
-        buyer.setBalance(buyer.getBalance() - price);
+        buyer.setBalance(buyer.getBalance().subtract(price));
         userRepository.save(buyer);
 
         // 库存递减（复用 markAsSold 逻辑）
@@ -75,7 +76,7 @@ public class OrderService {
         // 增加卖家余额
         if (product.getSellerUsername() != null && !product.getSellerUsername().isEmpty()) {
             userRepository.findByUsername(product.getSellerUsername()).ifPresent(seller -> {
-                seller.setBalance(seller.getBalance() + price);
+                seller.setBalance(seller.getBalance().add(price));
                 userRepository.save(seller);
             });
         }
@@ -114,13 +115,13 @@ public class OrderService {
         // 退还买家余额
         User buyer = userRepository.findByUsername(order.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
-        buyer.setBalance(buyer.getBalance() + order.getProductPrice());
+        buyer.setBalance(buyer.getBalance().add(order.getProductPrice()));
         userRepository.save(buyer);
 
         // 扣回卖家余额
         if (order.getSellerUsername() != null && !order.getSellerUsername().isEmpty()) {
             userRepository.findByUsername(order.getSellerUsername()).ifPresent(seller -> {
-                seller.setBalance(seller.getBalance() - order.getProductPrice());
+                seller.setBalance(seller.getBalance().subtract(order.getProductPrice()));
                 userRepository.save(seller);
             });
         }

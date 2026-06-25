@@ -13,6 +13,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -56,8 +57,8 @@ class OrderServiceTest {
         product.setName("Test Product");
         product.setCategory("electronics");
         product.setDescription("Test");
-        product.setOriginalPrice(price * 2);
-        product.setSecondHandPrice(price);
+        product.setOriginalPrice(BigDecimal.valueOf(price * 2));
+        product.setSecondHandPrice(BigDecimal.valueOf(price));
         product.setItemCondition("good");
         product.setSellerName("Seller");
         product.setSellerPhone("13800000000");
@@ -75,7 +76,7 @@ class OrderServiceTest {
         user.setEmail(username + "@test.com");
         user.setPhone("13800000000");
         user.setNickname(username);
-        user.setBalance(balance);
+        user.setBalance(BigDecimal.valueOf(balance));
         return userRepository.save(user);
     }
 
@@ -99,7 +100,7 @@ class OrderServiceTest {
                 try {
                     startLatch.await(5, TimeUnit.SECONDS);
                     transactionTemplate.executeWithoutResult(status -> {
-                        orderService.createOrder(buyerName, product.getId(), 100.0,
+                        orderService.createOrder(buyerName, product.getId(), BigDecimal.valueOf(100.0),
                                 "Test Product", "electronics", "test.jpg",
                                 "Receiver", "13800000001", "Test Address",
                                 "balance");
