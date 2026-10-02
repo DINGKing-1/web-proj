@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>液态玻璃侧边栏 · 预览</title>
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    referrerpolicy="no-referrer"
+  />
+  <style>
+    :root {
+      --bg: #fff8f1;
+      --ink: #2c221b;
+      --ink-soft: #5c4d40;
+      --accent: #d4883c;
+      --accent-deep: #b86f28;
+      --danger: #d64545;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(900px 500px at 12% -8%, #ffe4c8 0%, transparent 55%),
+        radial-gradient(700px 420px at 100% 10%, #fff0dc 0%, transparent 50%),
+        linear-gradient(180deg, var(--bg), #ffe9d4 55%, #fff8f1);
+      overflow-x: hidden;
+    }
+    .page {
+      width: min(100% - 40px, 960px);
+      margin: 0 auto;
+      padding: 48px 0 120px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 4vw, 40px);
+      letter-spacing: -0.02em;
+    }
+    .lead {
+      margin: 0 0 32px;
+      color: var(--ink-soft);
+      line-height: 1.7;
+      max-width: 36em;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      height: 140px;
+      border-radius: 20px;
+      border: 1px solid rgba(237, 226, 212, 0.9);
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 8px 28px rgba(120, 70, 25, 0.08);
+    }
+
+    /* ===== 液态玻璃侧栏（与应用内 SideDock 一致） ===== */
+    .side-dock {
+      position: fixed;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 50;
+      width: 56px;
+      padding: 10px 8px;
+      border-radius: 28px;
+      color: var(--ink-soft);
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 248, 241, 0.42) 48%, rgba(255, 255, 255, 0.58) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      box-shadow:
+        0 10px 40px rgba(120, 70, 25, 0.14),
+        0 2px 8px rgba(120, 70, 25, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(22px) saturate(1.45);
+      -webkit-backdrop-filter: blur(22px) saturate(1.45);
+      transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1), padding 0.28s ease, box-shadow 0.25s ease;
+      overflow: hidden;
+    }
+    .side-dock.expanded {
+      width: 92px;
+      padding: 12px 10px;
+    }
+    .dock-glow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      background:
+        radial-gradient(120% 60% at 20% 0%, rgba(255, 255, 255, 0.55), transparent 55%),
+        radial-gradient(80% 40% at 100% 80%, rgba(212, 136, 60, 0.12), transparent 60%);
+      mix-blend-mode: soft-light;
+    }
+    .dock-items {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .dock-item {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 8px 4px;
+      border: none;
+      border-radius: 16px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    }
+    .dock-item:hover {
+      background: rgba(255, 255, 255, 0.55);
+      color: var(--accent-deep);
+      transform: translateY(-1px);
+    }
+    .dock-item.active {
+      background: linear-gradient(160deg, rgba(212, 136, 60, 0.22), rgba(212, 136, 60, 0.08));
+      color: var(--accent-deep);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+    .icon-wrap {
+      position: relative;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      font-size: 15px;
+    }
+    .dock-label {
+      font-size: 10px;
+      font-weight: 600;
+      max-width: 0;
+      opacity: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      transition: max-width 0.22s ease, opacity 0.18s ease;
+    }
+    .side-dock.expanded .dock-label {
+      max-width: 64px;
+      opacity: 1;
+    }
+    .dock-badge {
+      position: absolute;
+      top: -3px;
+      right: -8px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+    }
+    .dock-divider {
+      width: 28px;
+      height: 1px;
+      margin: 4px 0;
+      background: linear-gradient(90deg, transparent, rgba(120, 70, 25, 0.18), transparent);
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>液态玻璃快捷侧栏</h1>
+    <p class="lead">
+      贴在页面右侧边框上的导航坞，风格接近京东 / 闲鱼的悬浮工具条。
+      材质为暖金奶油背景上的液态玻璃：半透明层叠、高模糊饱和、内高光与流光。
+      悬停展开文字标签，再次移开收拢。
+    </p>
+    <div class="grid" aria-hidden="true">
+      <div class="card"></div><div class="card"></div><div class="card"></div>
+      <div class="card"></div><div class="card"></div><div class="card"></div>
+      <div class="card"></div><div class="card"></div><div class="card"></div>
+    </div>
+  </main>
+
+  <aside class="side-dock" id="dock" aria-label="快捷导航">
+    <div class="dock-glow"></div>
+    <div class="dock-items" id="items"></div>
+  </aside>
+
+  <script>
+    const items = [
+      { icon: 'fa-house', label: '首页', badge: 0, active: true },
+      { icon: 'fa-table-cells-large', label: '分类', badge: 0 },
+      { icon: 'fa-comment-dots', label: '消息', badge: 3 },
+      { icon: 'fa-box', label: '订单', badge: 2 },
+      { icon: 'fa-heart', label: '收藏', badge: 0 },
+      { icon: 'fa-shopping-bag', label: '购物车', badge: 5 },
+      { icon: 'fa-user', label: '我的', badge: 0 }
+    ]
+
+    const dock = document.getElementById('dock')
+    const root = document.getElementById('items')
+
+    items.forEach((item) => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'dock-item' + (item.active ? ' active' : '')
+      btn.title = item.label
+      btn.innerHTML =
+        `<span class="icon-wrap"><i class="fas ${item.icon}"></i>` +
+        (item.badge ? `<span class="dock-badge">${item.badge}</span>` : '') +
+        `</span><span class="dock-label">${item.label}</span>`
+      root.appendChild(btn)
+    })
+
+    const divider = document.createElement('div')
+    divider.className = 'dock-divider'
+    root.appendChild(divider)
+
+    const topBtn = document.createElement('button')
+    topBtn.type = 'button'
+    topBtn.className = 'dock-item'
+    topBtn.title = '回到顶部'
+    topBtn.innerHTML = `<span class="icon-wrap"><i class="fas fa-arrow-up"></i></span><span class="dock-label">顶部</span>`
+    topBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }))
+    root.appendChild(topBtn)
+
+    dock.addEventListener('mouseenter', () => dock.classList.add('expanded'))
+    dock.addEventListener('mouseleave', () => dock.classList.remove('expanded'))
+  </script>
+</body>
+</html>

@@ -6,6 +6,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import AppHeader from '@/components/AppHeader.vue'
 import CategoryBar from '@/components/CategoryBar.vue'
 import AppFooter from '@/components/AppFooter.vue'
+import SideDock from '@/components/SideDock.vue'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -57,6 +58,7 @@ onBeforeUnmount(() => pause())
       <router-view />
       <template v-if="!isBare()">
         <AppFooter />
+        <SideDock />
       </template>
     </div>
   </el-config-provider>
