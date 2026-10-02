@@ -55,10 +55,8 @@ public class FileUploadService {
             throw new RuntimeException("单张图片大小不能超过 5MB");
         }
 
-        String ext = "jpg";
-        if (header.contains("png")) ext = "png";
-        else if (header.contains("gif")) ext = "gif";
-        else if (header.contains("webp")) ext = "webp";
+        // 按文件魔数识别真实类型，避免伪造扩展名
+        String ext = detectImageExt(imageBytes, header);
 
         String filename = UUID.randomUUID().toString().substring(0, 8) + "_" + System.currentTimeMillis() + "." + ext;
         File file = new File(dir, filename);
@@ -69,5 +67,34 @@ public class FileUploadService {
         }
 
         return urlPrefix + filename;
+    }
+
+    /** 根据文件魔数判断图片类型；无法识别时回退 dataURL header，仍不认识则拒绝 */
+    private String detectImageExt(byte[] bytes, String header) {
+        if (bytes.length >= 8
+                && (bytes[0] & 0xFF) == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
+            return "png";
+        }
+        if (bytes.length >= 3
+                && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xD8 && (bytes[2] & 0xFF) == 0xFF) {
+            return "jpg";
+        }
+        if (bytes.length >= 6
+                && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+            return "gif";
+        }
+        if (bytes.length >= 12
+                && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
+            return "webp";
+        }
+        // 无魔数匹配时仅信任 dataURL header 的声明
+        if (header != null) {
+            if (header.contains("png")) return "png";
+            if (header.contains("gif")) return "gif";
+            if (header.contains("webp")) return "webp";
+            if (header.contains("jpeg") || header.contains("jpg")) return "jpg";
+        }
+        throw new RuntimeException("仅支持 JPG/PNG/GIF/WebP 图片");
     }
 }

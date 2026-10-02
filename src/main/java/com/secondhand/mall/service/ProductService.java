@@ -171,13 +171,13 @@ public class ProductService {
         return products;
     }
 
-    public List<Product> searchProducts(String keyword, String category, Double minPrice, Double maxPrice, String condition, String sortBy) {
+    public List<Product> searchProducts(String keyword, String category, BigDecimal minPrice, BigDecimal maxPrice, String condition, String sortBy) {
         boolean hasCategory = category != null && !category.isEmpty();
         boolean hasPriceRange = minPrice != null || maxPrice != null;
         boolean hasCondition = condition != null && !condition.isEmpty();
 
-        BigDecimal min = minPrice != null ? BigDecimal.valueOf(minPrice) : BigDecimal.ZERO;
-        BigDecimal max = maxPrice != null ? BigDecimal.valueOf(maxPrice) : new BigDecimal("99999999.99");
+        BigDecimal min = minPrice != null ? minPrice : BigDecimal.ZERO;
+        BigDecimal max = maxPrice != null ? maxPrice : new BigDecimal("99999999.99");
 
         List<Product> products;
 
@@ -232,7 +232,7 @@ public class ProductService {
         return products;
     }
 
-    public List<Product> getFilteredProducts(String category, Double minPrice, Double maxPrice, String condition, String sortBy) {
+    public List<Product> getFilteredProducts(String category, BigDecimal minPrice, BigDecimal maxPrice, String condition, String sortBy) {
         boolean hasCategory = category != null && !category.isEmpty();
         boolean hasPriceRange = minPrice != null || maxPrice != null;
         boolean hasCondition = condition != null && !condition.isEmpty();
@@ -262,8 +262,8 @@ public class ProductService {
         }
 
         // 有筛选条件时，使用内存排序
-        BigDecimal min = minPrice != null ? BigDecimal.valueOf(minPrice) : BigDecimal.ZERO;
-        BigDecimal max = maxPrice != null ? BigDecimal.valueOf(maxPrice) : new BigDecimal("99999999.99");
+        BigDecimal min = minPrice != null ? minPrice : BigDecimal.ZERO;
+        BigDecimal max = maxPrice != null ? maxPrice : new BigDecimal("99999999.99");
 
         List<Product> products;
 

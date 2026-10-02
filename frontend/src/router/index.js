@@ -33,7 +33,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  let user = null
+  let user
   try {
     const raw = sessionStorage.getItem('loginUser')
     user = raw ? JSON.parse(raw) : null

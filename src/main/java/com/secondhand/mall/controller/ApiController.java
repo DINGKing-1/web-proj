@@ -185,8 +185,8 @@ public class ApiController extends BaseApiController {
     @GetMapping("/products")
     public Map<String, Object> getProducts(
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) Double minPrice,
-            @RequestParam(required = false) Double maxPrice,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(required = false) String condition,
             @RequestParam(required = false) String sortBy,
             @RequestParam(defaultValue = "0") int page,
@@ -230,8 +230,8 @@ public class ApiController extends BaseApiController {
     public Map<String, Object> searchProducts(
             @RequestParam String q,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) Double minPrice,
-            @RequestParam(required = false) Double maxPrice,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(required = false) String condition,
             @RequestParam(required = false) String sortBy,
             @RequestParam(defaultValue = "0") int page,

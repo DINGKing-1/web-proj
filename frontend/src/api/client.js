@@ -1,5 +1,3 @@
-const BASE_OK = true
-
 async function request(url, options = {}) {
   const headers = { ...(options.headers || {}) }
   const method = (options.method || 'GET').toUpperCase()
@@ -22,7 +20,7 @@ async function request(url, options = {}) {
       body,
       credentials: 'same-origin'
     })
-  } catch (e) {
+  } catch {
     return { success: false, message: '网络异常，请稍后重试' }
   }
 

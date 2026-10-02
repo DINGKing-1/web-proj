@@ -48,16 +48,22 @@ async function load() {
       showToast('商品不存在', 'error')
     }
   } else {
+    // 购物车 DTO 已含下单所需字段，无需再逐件拉商品详情
     const d = await cartApi.list()
-    const items = (d.items || []).filter((i) => i.available)
-    const list = []
-    for (const item of items) {
-      const pd = await productApi.detail(item.productId)
-      if (pd.success && pd.product) {
-        list.push({ product: pd.product, quantity: 1, cartItemId: item.id })
-      }
-    }
-    checkoutItems.value = list
+    checkoutItems.value = (d.items || [])
+      .filter((i) => i.available)
+      .map((item) => ({
+        product: {
+          id: item.productId,
+          name: item.productName,
+          secondHandPrice: item.price,
+          category: item.category || '',
+          imageUrl: item.image,
+          firstImage: item.image
+        },
+        quantity: 1,
+        cartItemId: item.id
+      }))
   }
 
   const [addr, user] = await Promise.all([userApi.addresses(), userApi.info()])
@@ -139,7 +145,7 @@ async function submitOrders() {
     receiverName: addr.receiverName,
     receiverPhone: addr.phone,
     receiverAddress,
-    paymentMethod: 'balance'
+    paymentMethod: '余额支付'
   })
 
   submitting.value = false

@@ -55,6 +55,7 @@ public class CartService {
                 dto.setProductName(product.getName());
                 dto.setPrice(product.getSecondHandPrice());
                 dto.setImage(product.getImageUrl());
+                dto.setCategory(product.getCategory());
                 dto.setAvailable(true);
             } else {
                 dto.setProductName("商品已下架");

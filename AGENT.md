@@ -233,6 +233,7 @@ src/main/resources/
 ```bash
 .\.maven\apache-maven-3.9.6\bin\mvn.cmd test   # 后端 23 个
 cd frontend && npm test                        # 前端工具函数冒烟
+cd frontend && npm run lint                    # ESLint（JS 源码）
 ```
 
 后端覆盖 AdminService、BigDecimal、CartService、ChatService、CommentService、OrderService（含批量下单事务）、ProductService、UserService。

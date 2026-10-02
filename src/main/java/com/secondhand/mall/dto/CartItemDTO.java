@@ -8,6 +8,7 @@ public class CartItemDTO {
     private String productName;
     private BigDecimal price;
     private String image;
+    private String category;
     private boolean available;
 
     public CartItemDTO() {}
@@ -26,6 +27,9 @@ public class CartItemDTO {
 
     public String getImage() { return image; }
     public void setImage(String image) { this.image = image; }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
 
     public boolean isAvailable() { return available; }
     public void setAvailable(boolean available) { this.available = available; }

@@ -45,3 +45,6 @@ uploads/
 /static/
 /templates/
 /java-backend/
+
+# Playwright CLI artifacts
+.playwright-cli/

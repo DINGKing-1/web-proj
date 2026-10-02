@@ -1,11 +1,15 @@
 package com.secondhand.mall;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 
 @SpringBootApplication
 public class SecondhandMallApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(SecondhandMallApplication.class);
 
     public static void main(String[] args) {
         ConfigurableApplicationContext context = SpringApplication.run(SecondhandMallApplication.class, args);
@@ -14,7 +18,7 @@ public class SecondhandMallApplication {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if (context.isActive()) {
                 context.close();
-                System.out.println("[ShutdownHook] 应用已优雅关闭，8080 端口已释放");
+                log.info("[ShutdownHook] 应用已优雅关闭，8080 端口已释放");
             }
         }));
     }
