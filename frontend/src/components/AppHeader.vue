@@ -10,6 +10,8 @@ const search = ref('')
 const menuOpen = ref(false)
 const { y } = useWindowScroll()
 const scrolled = computed(() => y.value > 12)
+const userMenuRef = ref(null)
+let closeTimer = 0
 
 function doSearch() {
   const q = search.value.trim()
@@ -17,10 +19,60 @@ function doSearch() {
   router.push({ path: '/search', query: { q } })
 }
 
-async function handleLogout() {
+function openMenu() {
+  if (closeTimer) {
+    clearTimeout(closeTimer)
+    closeTimer = 0
+  }
+  menuOpen.value = true
+}
+
+function scheduleClose(delay = 180) {
+  if (closeTimer) clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => {
+    menuOpen.value = false
+    closeTimer = 0
+  }, delay)
+}
+
+function closeMenuNow() {
+  if (closeTimer) {
+    clearTimeout(closeTimer)
+    closeTimer = 0
+  }
   menuOpen.value = false
+}
+
+function toggleMenu() {
+  if (menuOpen.value) closeMenuNow()
+  else openMenu()
+}
+
+function onDocClick(e) {
+  if (!menuOpen.value) return
+  const root = userMenuRef.value
+  if (root && !root.contains(e.target)) closeMenuNow()
+}
+
+function onKeydown(e) {
+  if (e.key === 'Escape' && menuOpen.value) closeMenuNow()
+}
+
+async function handleLogout() {
+  closeMenuNow()
   await store.logout()
 }
+
+onMounted(() => {
+  document.addEventListener('click', onDocClick, true)
+  document.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick, true)
+  document.removeEventListener('keydown', onKeydown)
+  if (closeTimer) clearTimeout(closeTimer)
+})
 
 // 移动端展开搜索
 const mobileSearchOpen = ref(false)
@@ -56,8 +108,18 @@ const mobileSearchOpen = ref(false)
           <router-link to="/upload" class="btn btn-primary btn-sm hide-mobile">
             <i class="fas fa-plus"></i> 发布
           </router-link>
-          <div class="user-menu" @mouseleave="menuOpen = false">
-            <button class="user-trigger" @click="menuOpen = !menuOpen">
+          <div
+            ref="userMenuRef"
+            class="user-menu"
+            @mouseenter="openMenu"
+            @mouseleave="scheduleClose()"
+          >
+            <button
+              class="user-trigger"
+              :aria-expanded="menuOpen"
+              aria-haspopup="menu"
+              @click="toggleMenu"
+            >
               <img
                 :src="store.user.avatar || '/user-avatar/default.jpg'"
                 alt=""
@@ -65,23 +127,23 @@ const mobileSearchOpen = ref(false)
                 @error="$event.target.src = '/user-avatar/default.jpg'"
               />
               <span class="nickname">{{ store.displayName }}</span>
-              <i class="fas fa-chevron-down"></i>
+              <i class="fas fa-chevron-down" :class="{ open: menuOpen }"></i>
             </button>
             <transition name="fade">
-              <div v-if="menuOpen" class="dropdown">
-                <router-link to="/user" @click="menuOpen = false">
+              <div v-if="menuOpen" class="dropdown" role="menu" @mouseenter="openMenu" @mouseleave="scheduleClose()">
+                <router-link to="/user" role="menuitem" @click="closeMenuNow">
                   <i class="fas fa-user"></i> 个人中心
                 </router-link>
-                <router-link to="/favorites" @click="menuOpen = false">
+                <router-link to="/favorites" role="menuitem" @click="closeMenuNow">
                   <i class="fas fa-heart"></i> 我的收藏
                 </router-link>
-                <router-link to="/my-orders" @click="menuOpen = false">
+                <router-link to="/my-orders" role="menuitem" @click="closeMenuNow">
                   <i class="fas fa-box"></i> 我的订单
                 </router-link>
-                <router-link to="/seller-orders" @click="menuOpen = false">
+                <router-link to="/seller-orders" role="menuitem" @click="closeMenuNow">
                   <i class="fas fa-store"></i> 卖家订单
                 </router-link>
-                <a href="#" class="danger" @click.prevent="handleLogout">
+                <a href="#" class="danger" role="menuitem" @click.prevent="handleLogout">
                   <i class="fas fa-sign-out-alt"></i> 退出登录
                 </a>
               </div>
@@ -212,6 +274,18 @@ const mobileSearchOpen = ref(false)
 }
 .user-menu {
   position: relative;
+  /* 覆盖触发器到下拉之间的空隙，避免 mouseleave 误关 */
+  padding-bottom: 12px;
+  margin-bottom: -12px;
+}
+.user-menu::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 16px;
+  z-index: var(--z-dropdown);
 }
 .user-trigger {
   display: flex;
@@ -243,11 +317,15 @@ const mobileSearchOpen = ref(false)
 .user-trigger i {
   font-size: 10px;
   color: var(--muted);
+  transition: transform 0.18s ease;
+}
+.user-trigger i.open {
+  transform: rotate(180deg);
 }
 .dropdown {
   position: absolute;
   right: 0;
-  top: calc(100% + 8px);
+  top: calc(100% + 4px);
   min-width: 168px;
   background: var(--surface);
   border: 1px solid var(--border);
