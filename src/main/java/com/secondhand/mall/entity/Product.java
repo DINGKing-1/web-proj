@@ -64,6 +64,10 @@ public class Product {
     @Column(nullable = false, columnDefinition = "DATETIME(6)")
     private LocalDateTime createdAt;
 
+    /** 销量（未取消订单数），非持久化，查询时填充 */
+    @Transient
+    private Long salesCount;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
@@ -162,4 +166,7 @@ public class Product {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public Long getSalesCount() { return salesCount; }
+    public void setSalesCount(Long salesCount) { this.salesCount = salesCount; }
 }

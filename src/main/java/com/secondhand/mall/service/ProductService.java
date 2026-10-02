@@ -33,12 +33,29 @@ public class ProductService {
         this.orderRepository = orderRepository;
     }
 
-    /** 按销量降序（同销量再按上架时间新→旧） */
-    private void sortBySales(List<Product> products) {
+    private Map<Long, Long> loadSalesMap() {
         Map<Long, Long> sales = new HashMap<>();
         for (Object[] row : orderRepository.countSalesByProductId()) {
             if (row[0] == null || row[1] == null) continue;
             sales.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+        }
+        return sales;
+    }
+
+    /** 批量填充销量到商品列表 */
+    private void fillSalesCounts(List<Product> products) {
+        if (products == null || products.isEmpty()) return;
+        Map<Long, Long> sales = loadSalesMap();
+        for (Product p : products) {
+            p.setSalesCount(sales.getOrDefault(p.getId(), 0L));
+        }
+    }
+
+    /** 按销量降序（同销量再按上架时间新→旧） */
+    private void sortBySales(List<Product> products) {
+        Map<Long, Long> sales = loadSalesMap();
+        for (Product p : products) {
+            p.setSalesCount(sales.getOrDefault(p.getId(), 0L));
         }
         products.sort(
             Comparator.comparing((Product p) -> sales.getOrDefault(p.getId(), 0L)).reversed()
@@ -57,12 +74,16 @@ public class ProductService {
                 }
             });
         }
+        if (product.getId() != null) {
+            product.setSalesCount(loadSalesMap().getOrDefault(product.getId(), 0L));
+        }
     }
 
     private void fillSellerAvatars(List<Product> products) {
         for (Product p : products) {
             fillSellerAvatar(p);
         }
+        fillSalesCounts(products);
     }
 
     public Product createProduct(Product product) {

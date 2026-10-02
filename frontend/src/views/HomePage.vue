@@ -5,7 +5,6 @@ import ProductCard from '@/components/ProductCard.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import LoadingBlock from '@/components/LoadingBlock.vue'
-import { CATEGORIES } from '@/api/client'
 
 const products = ref([])
 const total = ref(0)
@@ -112,29 +111,7 @@ const FEATURES = [
       </div>
     </section>
 
-    <!-- 分类 -->
-    <section class="container section">
-      <div class="section-head">
-        <div>
-          <h2 class="h1">热门分类</h2>
-          <p class="muted">探索我们精心策划的商品分类</p>
-        </div>
-      </div>
-      <div class="cat-grid">
-        <router-link
-          v-for="(c, i) in CATEGORIES.filter((x) => x !== '全部')"
-          :key="c"
-          :to="`/category/${encodeURIComponent(c)}`"
-          class="cat-card"
-          :style="{ '--i': i }"
-        >
-          <span class="cat-name">{{ c }}</span>
-          <span class="cat-arrow"><i class="fas fa-arrow-right"></i></span>
-        </router-link>
-      </div>
-    </section>
-
-    <!-- 最新上架 -->
+<!-- 最新上架 -->
     <section class="container section">
       <div class="section-head">
         <div>
@@ -384,45 +361,11 @@ const FEATURES = [
   gap: 16px;
   margin-bottom: 20px;
 }
-.cat-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
-}
-.cat-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 16px;
-  border-radius: 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-weight: 650;
-  transition: all 0.2s ease;
-}
-.cat-card:hover {
-  border-color: var(--accent);
-  color: var(--accent-deep);
-  transform: translateY(-3px);
-  box-shadow: var(--shadow);
-}
-.cat-arrow {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent-deep);
-  font-size: 11px;
-  opacity: 0;
-  transform: translateX(-6px);
-  transition: all 0.2s;
-}
-.cat-card:hover .cat-arrow {
-  opacity: 1;
-  transform: none;
-}
+
+
+
+
+
 
 /* Product grid */
 .grid {
@@ -479,7 +422,7 @@ const FEATURES = [
   .grid {
     grid-template-columns: repeat(3, 1fr);
   }
-  .cat-grid,
+  
   .features {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -497,9 +440,6 @@ const FEATURES = [
   .grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
-  }
-  .cat-grid {
-    grid-template-columns: repeat(2, 1fr);
   }
   .features {
     grid-template-columns: repeat(2, 1fr);

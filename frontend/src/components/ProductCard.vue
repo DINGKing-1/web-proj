@@ -30,6 +30,11 @@ const image = computed(() => firstImage(props.product) || '/user-avatar/default.
         <span class="price">¥{{ formatPrice(product.secondHandPrice) }}</span>
         <span v-if="product.originalPrice" class="price-origin">¥{{ formatPrice(product.originalPrice) }}</span>
       </div>
+      <div class="sales-line">
+        <i class="fas fa-fire"></i>
+        <span v-if="product.salesCount > 0">已售 {{ product.salesCount }} 件</span>
+        <span v-else>暂无销量</span>
+      </div>
     </div>
   </router-link>
 </template>
@@ -103,5 +108,17 @@ const image = computed(() => firstImage(props.product) || '/user-avatar/default.
 .price-row {
   display: flex;
   align-items: baseline;
+}
+.sales-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sales-line i {
+  font-size: 11px;
+  color: var(--accent);
+  opacity: 0.85;
 }
 </style>
