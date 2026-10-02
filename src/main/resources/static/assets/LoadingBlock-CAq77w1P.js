@@ -1,0 +1,1 @@
+import{K as s,L as a,M as o,X as r,V as n}from"./echarts-4IAYMI7z.js";const i={class:"loading",role:"status","aria-live":"polite"},p={__name:"LoadingBlock",props:{text:{type:String,default:"加载中…"}},setup(t){return(l,e)=>(s(),a("div",i,[e[0]||(e[0]=o("div",{class:"spinner"},null,-1)),r(" "+n(t.text),1)]))}};export{p as _};

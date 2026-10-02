@@ -36,77 +36,32 @@ const FEATURES = [
 
 <template>
   <main class="page">
-    <!-- Hero -->
+    <!-- Hero：压低高度，首屏尽量露出商品 -->
     <section class="hero">
       <div class="hero-bg" aria-hidden="true">
         <div class="blob b1"></div>
         <div class="blob b2"></div>
-        <div class="blob b3"></div>
-        <div class="grid-lines"></div>
       </div>
       <div class="container hero-inner">
         <div class="hero-copy">
-          <div class="eyebrow">
-            <span class="dot"></span>
-            PREMIUM SECOND-HAND
-          </div>
           <h1 class="display">
             好物不该被闲置
             <span class="accent">让流转更有价值</span>
           </h1>
-          <p class="lead">
-            优品汇甄选二手好物，从手机数码到家居潮品——安心交易、即时沟通、余额托管。
-          </p>
+          <p class="lead">精选二手好物，安心交易、即时沟通、余额托管。</p>
           <div class="hero-actions">
-            <router-link to="/upload" class="btn btn-primary btn-lg">
-              <i class="fas fa-plus"></i> 发布闲置
-            </router-link>
-            <router-link to="/category/手机" class="btn btn-outline btn-lg">
+            <router-link to="/category/全部" class="btn btn-primary btn-lg">
               逛逛好物 <i class="fas fa-arrow-right"></i>
             </router-link>
+            <router-link to="/upload" class="btn btn-outline btn-lg">
+              <i class="fas fa-plus"></i> 发布闲置
+            </router-link>
           </div>
-          <div class="hero-stats">
-            <div class="stat-item">
-              <strong>10+</strong>
-              <span>精选品类</span>
-            </div>
-            <div class="stat-item">
-              <strong>实时</strong>
-              <span>消息推送</span>
-            </div>
-            <div class="stat-item">
-              <strong>100%</strong>
-              <span>头像跟随</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="hero-visual" aria-hidden="true">
-          <div class="float-card card-a">
-            <div class="fc-icon">📱</div>
-            <div>
-              <div class="fc-title">iPhone 15 Pro</div>
-              <div class="fc-price">¥ 4,299</div>
-            </div>
-            <span class="fc-tag">几乎全新</span>
-          </div>
-          <div class="float-card card-b">
-            <div class="fc-icon">💻</div>
-            <div>
-              <div class="fc-title">MacBook Air</div>
-              <div class="fc-price">¥ 5,200</div>
-            </div>
-            <span class="fc-tag">轻微使用</span>
-          </div>
-          <div class="float-card card-c">
-            <div class="fc-icon">🎧</div>
-            <div>
-              <div class="fc-title">AirPods Pro</div>
-              <div class="fc-price">¥ 899</div>
-            </div>
-            <span class="fc-tag">全新</span>
-          </div>
-          <div class="orb-ring"></div>
+          <ul class="trust-row">
+            <li><i class="fas fa-shield-halved"></i> 正品保障</li>
+            <li><i class="fas fa-bolt"></i> 极速流转</li>
+            <li><i class="fas fa-comments"></i> 即时沟通</li>
+          </ul>
         </div>
       </div>
     </section>
@@ -141,8 +96,10 @@ const FEATURES = [
       <div class="features">
         <div v-for="f in FEATURES" :key="f.title" class="feature">
           <div class="f-icon"><i class="fas" :class="f.icon"></i></div>
-          <h3>{{ f.title }}</h3>
-          <p class="muted text-sm">{{ f.desc }}</p>
+          <div>
+            <h3>{{ f.title }}</h3>
+            <p class="muted text-sm">{{ f.desc }}</p>
+          </div>
         </div>
       </div>
     </section>
@@ -150,10 +107,10 @@ const FEATURES = [
 </template>
 
 <style scoped>
-/* Hero */
+/* Hero：紧凑 */
 .hero {
   position: relative;
-  padding: 48px 0 28px;
+  padding: 28px 0 8px;
   overflow: hidden;
 }
 .hero-bg {
@@ -167,205 +124,62 @@ const FEATURES = [
   filter: blur(2px);
 }
 .b1 {
-  width: 320px;
-  height: 320px;
-  background: rgba(212, 136, 60, 0.18);
-  top: -60px;
-  right: 12%;
+  width: 220px;
+  height: 220px;
+  background: rgba(212, 136, 60, 0.12);
+  top: -70px;
+  right: 8%;
 }
 .b2 {
-  width: 180px;
-  height: 180px;
-  background: rgba(255, 190, 120, 0.28);
-  bottom: 10%;
-  left: 8%;
-}
-.b3 {
-  width: 100px;
-  height: 100px;
-  background: rgba(47, 158, 98, 0.12);
-  top: 30%;
-  left: 40%;
-}
-.grid-lines {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(212, 136, 60, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(212, 136, 60, 0.05) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse at 50% 30%, #000 20%, transparent 70%);
+  width: 140px;
+  height: 140px;
+  background: rgba(255, 190, 120, 0.16);
+  bottom: -20px;
+  left: 4%;
 }
 .hero-inner {
   position: relative;
-  display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 28px;
-  align-items: center;
-}
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid var(--border);
-  color: var(--accent-deep);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  margin-bottom: 16px;
-}
-.eyebrow .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(212, 136, 60, 0.2);
 }
 .display {
-  font-size: clamp(32px, 5vw, 52px);
+  font-size: clamp(26px, 3.6vw, 38px);
   font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  margin: 0 0 16px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0 0 10px;
 }
 .display .accent {
-  display: block;
   background: linear-gradient(120deg, var(--accent), var(--accent-deep) 60%, #d4883c);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .lead {
-  font-size: 17px;
+  font-size: 15px;
   color: var(--ink-soft);
-  max-width: 34em;
-  margin: 0 0 24px;
-  line-height: 1.75;
+  max-width: 36em;
+  margin: 0 0 18px;
+  line-height: 1.7;
 }
 .hero-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 28px;
+  margin-bottom: 16px;
 }
-.hero-stats {
+.trust-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  gap: 28px;
   flex-wrap: wrap;
-}
-.stat-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.stat-item strong {
-  font-size: 22px;
-  color: var(--accent-deep);
-  letter-spacing: -0.02em;
-}
-.stat-item span {
-  font-size: 12px;
+  gap: 16px 22px;
   color: var(--muted);
-}
-
-/* Floating cards visual */
-.hero-visual {
-  position: relative;
-  min-height: 340px;
-}
-.float-card {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(14px);
-  border-radius: 18px;
-  box-shadow: var(--shadow-lg);
-  animation: floatY 5s ease-in-out infinite;
-}
-.card-a {
-  top: 8%;
-  right: 8%;
-  animation-delay: 0s;
-}
-.card-b {
-  top: 38%;
-  left: 4%;
-  animation-delay: 1.2s;
-}
-.card-c {
-  bottom: 10%;
-  right: 14%;
-  animation-delay: 2.2s;
-}
-.fc-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  font-size: 20px;
-}
-.fc-title {
-  font-weight: 700;
   font-size: 13px;
 }
-.fc-price {
-  color: var(--accent-deep);
-  font-weight: 800;
-  font-size: 15px;
+.trust-row i {
+  color: var(--accent);
+  margin-right: 6px;
 }
-.fc-tag {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--success-soft);
-  color: var(--success);
-  font-weight: 600;
-}
-.orb-ring {
-  position: absolute;
-  width: 220px;
-  height: 220px;
-  border: 1.5px dashed rgba(212, 136, 60, 0.35);
-  border-radius: 50%;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-@keyframes floatY {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-/* Categories */
-.section {
-  margin-top: 36px;
-}
-.section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-
-
-
-
-
 
 /* Product grid */
 .grid {

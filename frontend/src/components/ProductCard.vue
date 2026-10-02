@@ -22,13 +22,13 @@ const image = computed(() => firstImage(props.product) || '/user-avatar/default.
     </div>
     <div class="body">
       <h3 class="title">{{ product.name }}</h3>
-      <div class="meta">
-        <span class="badge">{{ product.category }}</span>
-        <span v-if="product.itemCondition" class="cond">{{ product.itemCondition }}</span>
-      </div>
       <div class="price-row">
         <span class="price">¥{{ formatPrice(product.secondHandPrice) }}</span>
         <span v-if="product.originalPrice" class="price-origin">¥{{ formatPrice(product.originalPrice) }}</span>
+      </div>
+      <div class="meta">
+        <span v-if="product.itemCondition" class="cond">{{ product.itemCondition }}</span>
+        <span class="cond">{{ product.category }}</span>
       </div>
       <div class="sales-line">
         <i class="fas fa-fire"></i>

@@ -18,6 +18,7 @@ const imageIndex = ref(0)
 const favorited = ref(false)
 const comments = ref([])
 const commentText = ref('')
+const submittingComment = ref(false)
 const autoTimer = ref(null)
 const autoCycles = ref(0)
 
@@ -29,12 +30,10 @@ const images = computed(() => {
 })
 
 const isSeller = computed(
-  () =>
-    store.user &&
-    product.value &&
-    store.user.username === product.value.sellerUsername
+  () => store.user && product.value && store.user.username === product.value.sellerUsername
 )
 const isSold = computed(() => product.value && product.value.status === 'sold')
+const salesCount = computed(() => Number(product.value?.salesCount || 0))
 
 function requireLogin() {
   if (store.user) return true
@@ -111,7 +110,9 @@ async function addComment() {
     showToast('请输入评论内容', 'warning')
     return
   }
+  submittingComment.value = true
   const d = await productApi.addComment(route.params.id, content)
+  submittingComment.value = false
   if (d.success) {
     showToast('评论成功')
     commentText.value = ''
@@ -222,7 +223,7 @@ onBeforeUnmount(stopAuto)
 </script>
 
 <template>
-  <main class="page">
+  <main class="page detail-page">
     <div class="container">
       <LoadingBlock v-if="loading" />
       <EmptyState
@@ -235,9 +236,20 @@ onBeforeUnmount(stopAuto)
       </EmptyState>
 
       <template v-else>
+        <nav class="crumbs muted text-sm" aria-label="面包屑">
+          <router-link to="/">首页</router-link>
+          <span class="sep">/</span>
+          <router-link :to="`/category/${encodeURIComponent(product.category || '全部')}`">
+            {{ product.category || '全部' }}
+          </router-link>
+          <span class="sep">/</span>
+          <span class="current">{{ product.name }}</span>
+        </nav>
+
         <div class="detail-layout">
-          <section class="gallery card">
-            <div class="main-frame">
+          <!-- 图集 -->
+          <section class="gallery">
+            <div class="main-frame card">
               <img
                 v-if="images.length"
                 :src="images[imageIndex]"
@@ -245,12 +257,12 @@ onBeforeUnmount(stopAuto)
                 @error="$event.target.src = '/user-avatar/default.jpg'"
               />
               <div v-else class="placeholder"><i class="fas fa-image"></i></div>
-              <div v-if="isSold" class="sold-watermark">SOLD</div>
+              <div v-if="isSold" class="sold-watermark">已售出</div>
               <template v-if="images.length > 1">
-                <button class="nav-arrow left" @click="showImage(imageIndex - 1)">
+                <button class="nav-arrow left" type="button" aria-label="上一张" @click="showImage(imageIndex - 1)">
                   <i class="fas fa-chevron-left"></i>
                 </button>
-                <button class="nav-arrow right" @click="showImage(imageIndex + 1)">
+                <button class="nav-arrow right" type="button" aria-label="下一张" @click="showImage(imageIndex + 1)">
                   <i class="fas fa-chevron-right"></i>
                 </button>
                 <div class="counter">{{ imageIndex + 1 }} / {{ images.length }}</div>
@@ -260,6 +272,7 @@ onBeforeUnmount(stopAuto)
               <button
                 v-for="(img, i) in images"
                 :key="i"
+                type="button"
                 class="thumb"
                 :class="{ active: i === imageIndex }"
                 @click="showImage(i); stopAuto()"
@@ -269,28 +282,47 @@ onBeforeUnmount(stopAuto)
             </div>
           </section>
 
+          <!-- 信息 + 购买 -->
           <section class="info card card-pad">
-            <div class="status-row">
+            <div class="badges">
               <span class="badge" :class="isSold ? 'badge-danger' : 'badge-success'">
                 {{ isSold ? '已售出' : '在售' }}
               </span>
-              <span class="badge">{{ product.category }}</span>
-            </div>
-            <h1 class="h1">{{ product.name }}</h1>
-            <div class="price-row">
-              <span class="price-lg">¥{{ formatPrice(product.secondHandPrice) }}</span>
-              <span v-if="product.originalPrice" class="price-origin">
-                原价 ¥{{ formatPrice(product.originalPrice) }}
-              </span>
+              <span class="badge badge-muted">{{ product.category }}</span>
+              <span v-if="product.itemCondition" class="badge">{{ product.itemCondition }}</span>
             </div>
 
-            <div class="meta-grid">
-              <div><span class="label">成色</span><span>{{ product.itemCondition || '—' }}</span></div>
-              <div><span class="label">库存</span><span>{{ product.quantity ?? 1 }}</span></div>
-              <div><span class="label">发布时间</span><span>{{ formatTime(product.createdAt) }}</span></div>
+            <h1 class="title">{{ product.name }}</h1>
+
+            <div class="price-box">
+              <div class="price-main">
+                <span class="yen">¥</span>
+                <span class="num">{{ formatPrice(product.secondHandPrice) }}</span>
+              </div>
+              <div v-if="product.originalPrice" class="price-sub">
+                原价 <s>¥{{ formatPrice(product.originalPrice) }}</s>
+                <span v-if="product.originalPrice > product.secondHandPrice" class="save">
+                  省 ¥{{ formatPrice(product.originalPrice - product.secondHandPrice) }}
+                </span>
+              </div>
             </div>
 
-            <div class="seller-card">
+            <ul class="meta-list">
+              <li>
+                <span class="k">销量</span>
+                <span class="v">{{ salesCount > 0 ? `已售 ${salesCount} 件` : '暂无销量' }}</span>
+              </li>
+              <li>
+                <span class="k">库存</span>
+                <span class="v">{{ product.quantity ?? 1 }} 件</span>
+              </li>
+              <li>
+                <span class="k">发布时间</span>
+                <span class="v">{{ formatTime(product.createdAt) }}</span>
+              </li>
+            </ul>
+
+            <div class="seller-row">
               <img
                 :src="product.sellerAvatar || '/user-avatar/default.jpg'"
                 class="seller-avatar"
@@ -301,59 +333,88 @@ onBeforeUnmount(stopAuto)
                 <div class="seller-name">{{ product.sellerName }}</div>
                 <div class="muted text-sm">卖家</div>
               </div>
-              <button class="btn btn-outline btn-sm" @click="contactSeller">
-                <i class="fas fa-comment"></i> 联系卖家
+              <button type="button" class="btn btn-outline btn-sm" @click="contactSeller">
+                <i class="fas fa-comment-dots"></i> 联系卖家
               </button>
             </div>
 
-            <div class="actions">
+            <div class="buy-actions">
               <template v-if="isSeller">
-                <button class="btn btn-danger btn-lg" @click="deleteProduct">
+                <button type="button" class="btn btn-danger btn-lg btn-block" @click="deleteProduct">
                   <i class="fas fa-trash"></i> 删除商品
                 </button>
               </template>
               <template v-else>
-                <button class="btn btn-primary btn-lg" :disabled="isSold" @click="buyNow">
+                <button type="button" class="btn btn-primary btn-lg buy-main" :disabled="isSold" @click="buyNow">
+                  <i class="fas fa-bolt"></i>
                   {{ isSold ? '已售出' : '立即购买' }}
                 </button>
-                <button class="btn btn-outline btn-lg" :disabled="isSold" @click="addToCart">
+                <button type="button" class="btn btn-outline btn-lg" :disabled="isSold" @click="addToCart">
                   <i class="fas fa-shopping-bag"></i> 加入购物车
                 </button>
                 <button
-                  class="btn btn-ghost btn-lg"
+                  type="button"
+                  class="btn btn-ghost btn-lg icon-fav"
                   :class="{ 'fav-active': favorited }"
+                  :title="favorited ? '取消收藏' : '收藏'"
                   @click="toggleFavorite"
                 >
                   <i :class="favorited ? 'fas fa-heart' : 'far fa-heart'"></i>
-                  {{ favorited ? '已收藏' : '收藏' }}
                 </button>
               </template>
             </div>
           </section>
         </div>
 
+        <!-- 描述 -->
         <section class="card card-pad block">
-          <h2 class="h2">商品描述</h2>
+          <div class="section-title">
+            <h2>商品描述</h2>
+          </div>
           <p class="desc">{{ product.description || '卖家暂未填写描述' }}</p>
         </section>
 
+        <!-- 评论 -->
         <section class="card card-pad block">
-          <div class="comment-head">
-            <h2 class="h2">留言评价</h2>
-            <span class="muted">{{ comments.length }} 条</span>
+          <div class="section-title">
+            <h2>留言评价</h2>
+            <span class="count-pill">{{ comments.length }}</span>
           </div>
-          <form class="comment-form" @submit.prevent="addComment">
+
+          <form class="composer card-inner" @submit.prevent="addComment">
             <textarea
               v-model="commentText"
-              class="form-textarea"
+              class="composer-input"
               maxlength="500"
-              placeholder="写下你的想法…"
+              rows="3"
+              placeholder="说点什么，帮助更多人了解这件商品…"
             ></textarea>
-            <button class="btn btn-primary" type="submit">发表评论</button>
+            <div class="composer-bar">
+              <span class="muted text-xs">{{ commentText.length }}/500</span>
+              <div class="composer-actions">
+                <button
+                  v-if="commentText"
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  @click="commentText = ''"
+                >
+                  清空
+                </button>
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  :disabled="submittingComment || !commentText.trim()"
+                >
+                  {{ submittingComment ? '发布中…' : '发布评论' }}
+                </button>
+              </div>
+            </div>
           </form>
+
           <EmptyState v-if="!comments.length" icon="fa-comments" title="还没有评论" desc="来抢沙发吧" />
+
           <ul v-else class="comment-list">
-            <li v-for="c in comments" :key="c.id">
+            <li v-for="c in comments" :key="c.id" class="comment-item">
               <img
                 :src="c.avatar || '/user-avatar/default.jpg'"
                 class="c-avatar"
@@ -362,10 +423,11 @@ onBeforeUnmount(stopAuto)
               />
               <div class="c-body">
                 <div class="c-top">
-                  <strong>{{ c.displayName || c.userName }}</strong>
+                  <strong class="c-name">{{ c.displayName || c.userName }}</strong>
                   <span class="muted text-xs">{{ formatTime(c.createdAt) }}</span>
                   <button
                     v-if="canDeleteComment(c)"
+                    type="button"
                     class="c-del"
                     @click="removeComment(c)"
                   >
@@ -383,18 +445,49 @@ onBeforeUnmount(stopAuto)
 </template>
 
 <style scoped>
+.detail-page {
+  padding-top: 20px;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.crumbs a:hover {
+  color: var(--accent-deep);
+}
+.crumbs .sep {
+  opacity: 0.45;
+}
+.crumbs .current {
+  max-width: 28em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
 .detail-layout {
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 22px;
-  margin-bottom: 22px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 18px;
 }
+
+/* 图集 */
 .gallery {
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 .main-frame {
   position: relative;
-  aspect-ratio: 1 / 0.92;
+  aspect-ratio: 1;
+  overflow: hidden;
   background: linear-gradient(180deg, #f7eee4, #efe2d2);
 }
 .main-frame img {
@@ -415,20 +508,21 @@ onBeforeUnmount(stopAuto)
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 56px;
+  font-size: 28px;
   font-weight: 800;
-  letter-spacing: 0.12em;
-  color: rgba(214, 69, 69, 0.28);
+  letter-spacing: 0.2em;
+  color: rgba(214, 69, 69, 0.22);
+  background: rgba(255, 255, 255, 0.18);
   pointer-events: none;
 }
 .nav-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.9);
   color: var(--ink);
   box-shadow: var(--shadow);
 }
@@ -442,7 +536,7 @@ onBeforeUnmount(stopAuto)
   position: absolute;
   right: 12px;
   bottom: 12px;
-  background: rgba(44, 34, 27, 0.65);
+  background: rgba(44, 34, 27, 0.62);
   color: #fff;
   font-size: 12px;
   padding: 4px 10px;
@@ -450,142 +544,303 @@ onBeforeUnmount(stopAuto)
 }
 .thumbs {
   display: flex;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
   overflow-x: auto;
+  padding-bottom: 2px;
 }
 .thumb {
-  width: 64px;
-  height: 64px;
+  width: 60px;
+  height: 60px;
   border-radius: 10px;
   overflow: hidden;
   border: 2px solid transparent;
   flex-shrink: 0;
   padding: 0;
+  background: var(--bg-soft);
 }
 .thumb.active {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(212, 136, 60, 0.18);
 }
 .thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.status-row {
+
+/* 信息卡 */
+.info {
+  position: sticky;
+  top: calc(var(--header-h) + 16px);
+}
+.badges {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
-.price-row {
-  margin: 12px 0 18px;
+.title {
+  margin: 0 0 14px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
 }
-.meta-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  padding: 14px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+.price-box {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(212, 136, 60, 0.1), rgba(212, 136, 60, 0.04));
+  border: 1px solid rgba(212, 136, 60, 0.18);
   margin-bottom: 16px;
 }
-.meta-grid .label {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 4px;
+.price-main {
+  display: flex;
+  align-items: baseline;
+  color: var(--accent-deep);
+  font-weight: 800;
 }
-.seller-card {
+.price-main .yen {
+  font-size: 18px;
+  margin-right: 2px;
+}
+.price-main .num {
+  font-size: 32px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.price-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.price-sub s {
+  margin-right: 8px;
+}
+.save {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.meta-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.meta-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.meta-list .k {
+  color: var(--muted);
+}
+.meta-list .v {
+  color: var(--ink-soft);
+  font-weight: 550;
+  text-align: right;
+}
+
+.seller-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px;
-  border-radius: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
   background: var(--surface-warm);
   border: 1px solid var(--border);
   margin-bottom: 18px;
 }
 .seller-avatar {
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   object-fit: cover;
 }
 .seller-meta {
   flex: 1;
+  min-width: 0;
 }
 .seller-name {
   font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.actions {
-  display: flex;
+
+.buy-actions {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr auto;
   gap: 10px;
-  flex-wrap: wrap;
+  align-items: center;
+}
+.buy-actions .btn-lg {
+  padding: 13px 16px;
+}
+.buy-actions .btn-block {
+  grid-column: 1 / -1;
+}
+.icon-fav {
+  width: 52px;
+  height: 48px;
+  border-radius: 14px;
 }
 .fav-active {
   color: var(--danger) !important;
+  background: var(--danger-soft);
 }
+
+/* 通用区块 */
 .block {
   margin-bottom: 18px;
 }
-.desc {
-  color: var(--ink-soft);
-  white-space: pre-wrap;
-  line-height: 1.8;
-}
-.comment-head {
+.section-title {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
   margin-bottom: 14px;
 }
-.comment-form {
+.section-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.count-pill {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-grid;
+  place-items: center;
+}
+.desc {
+  margin: 0;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  line-height: 1.85;
+  font-size: 15px;
+}
+
+/* 评论 */
+.card-inner {
+  background: var(--surface-warm);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 20px;
+}
+.composer-input {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.composer-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(212, 136, 60, 0.15);
+}
+.composer-bar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-top: 10px;
 }
-.comment-form .form-textarea {
-  flex: 1;
+.composer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
+
 .comment-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
-.comment-list li {
+.comment-item {
   display: flex;
   gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.comment-item:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 .c-avatar {
   width: 40px;
   height: 40px;
   border-radius: 50%;
   object-fit: cover;
+  flex-shrink: 0;
 }
 .c-body {
   flex: 1;
+  min-width: 0;
 }
 .c-top {
   display: flex;
   align-items: center;
   gap: 10px;
 }
+.c-name {
+  font-size: 14px;
+}
 .c-del {
   margin-left: auto;
-  color: var(--danger);
+  color: var(--muted);
   font-size: 12px;
+}
+.c-del:hover {
+  color: var(--danger);
 }
 .c-content {
   margin: 6px 0 0;
   color: var(--ink-soft);
   white-space: pre-wrap;
+  line-height: 1.7;
 }
-@media (max-width: 900px) {
+
+@media (max-width: 960px) {
   .detail-layout {
     grid-template-columns: 1fr;
   }
+  .info {
+    position: static;
+  }
+}
+@media (max-width: 560px) {
+  .title {
+    font-size: 19px;
+  }
+  .price-main .num {
+    font-size: 26px;
+  }
+  .buy-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+  .buy-actions .buy-main {
+    grid-column: 1 / -1;
+  }
+  .icon-fav {
+    width: 100%;
+  }
 }
 </style>
-
