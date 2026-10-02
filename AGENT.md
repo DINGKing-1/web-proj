@@ -174,7 +174,7 @@ src/main/resources/
 ### 6. 分页规则
 - 每页 12 件商品
 - `GET /api/products` 与 `/api/products/search` 均为手动分页
-- `sortBy` ∈ newest / price-asc / price-desc
+- `sortBy` ∈ newest / sales（销量降序）/ price-asc / price-desc
 - 分类「全部」需省略 category 参数（后端字面匹配）
 
 ### 7. 端口管理

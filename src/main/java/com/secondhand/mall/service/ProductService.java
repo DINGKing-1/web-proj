@@ -2,6 +2,7 @@ package com.secondhand.mall.service;
 
 import com.secondhand.mall.entity.Product;
 import com.secondhand.mall.entity.User;
+import com.secondhand.mall.repository.OrderRepository;
 import com.secondhand.mall.repository.ProductRepository;
 import com.secondhand.mall.repository.UserRepository;
 import org.springframework.data.domain.Page;
@@ -13,7 +14,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -21,10 +24,26 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final OrderRepository orderRepository;
 
-    public ProductService(ProductRepository productRepository, UserRepository userRepository) {
+    public ProductService(ProductRepository productRepository, UserRepository userRepository,
+                          OrderRepository orderRepository) {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
+        this.orderRepository = orderRepository;
+    }
+
+    /** 按销量降序（同销量再按上架时间新→旧） */
+    private void sortBySales(List<Product> products) {
+        Map<Long, Long> sales = new HashMap<>();
+        for (Object[] row : orderRepository.countSalesByProductId()) {
+            if (row[0] == null || row[1] == null) continue;
+            sales.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+        }
+        products.sort(
+            Comparator.comparing((Product p) -> sales.getOrDefault(p.getId(), 0L)).reversed()
+                .thenComparing(Product::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+        );
     }
 
     private void fillSellerAvatar(Product product) {
@@ -207,6 +226,10 @@ public class ProductService {
                 case "price-desc":
                     products.sort(Comparator.comparing(Product::getSecondHandPrice).reversed());
                     break;
+                case "sales":
+                case "sales-desc":
+                    sortBySales(products);
+                    break;
                 case "newest":
                 default:
                     products.sort(Comparator.comparing(Product::getCreatedAt).reversed());
@@ -249,6 +272,11 @@ public class ProductService {
                     case "price-desc":
                         products = productRepository.findAllActiveOrderByPriceDesc();
                         break;
+                    case "sales":
+                    case "sales-desc":
+                        products = productRepository.findByStatus("active");
+                        sortBySales(products);
+                        break;
                     case "newest":
                     default:
                         products = productRepository.findAllActiveOrderByNewest();
@@ -290,6 +318,10 @@ public class ProductService {
                     break;
                 case "price-desc":
                     products.sort(Comparator.comparing(Product::getSecondHandPrice).reversed());
+                    break;
+                case "sales":
+                case "sales-desc":
+                    sortBySales(products);
                     break;
                 case "newest":
                     products.sort(Comparator.comparing(Product::getCreatedAt).reversed());

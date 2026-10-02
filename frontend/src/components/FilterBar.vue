@@ -15,6 +15,7 @@ const emit = defineEmits(['update:sortBy', 'update:minPrice', 'update:maxPrice',
 
 const SORTS = [
   { label: '最新发布', value: 'newest' },
+  { label: '销量优先', value: 'sales' },
   { label: '价格从低到高', value: 'price-asc' },
   { label: '价格从高到低', value: 'price-desc' }
 ]

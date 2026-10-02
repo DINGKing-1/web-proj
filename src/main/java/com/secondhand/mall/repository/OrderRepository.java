@@ -31,4 +31,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query("SELECT o FROM Order o WHERE o.sellerUsername = :username AND o.status = :status ORDER BY o.createdAt DESC")
     List<Order> findBySellerUsernameAndStatusOrderByCreatedAtDesc(@Param("username") String username, @Param("status") String status);
+
+    /** 销量统计：按商品聚合未取消订单数 */
+    @Query("SELECT o.productId, COUNT(o) FROM Order o WHERE o.status <> 'cancelled' GROUP BY o.productId")
+    List<Object[]> countSalesByProductId();
 }
