@@ -166,7 +166,56 @@ public class ProductService {
     }
 
     public List<Product> searchProducts(String keyword) {
-        List<Product> products = productRepository.searchActiveByName(keyword);
+        List<Product> products = productRepository.searchActiveByKeyword(keyword);
+        fillSellerAvatars(products);
+        return products;
+    }
+
+    public List<Product> searchProducts(String keyword, String category, Double minPrice, Double maxPrice, String condition, String sortBy) {
+        boolean hasCategory = category != null && !category.isEmpty();
+        boolean hasPriceRange = minPrice != null || maxPrice != null;
+        boolean hasCondition = condition != null && !condition.isEmpty();
+
+        BigDecimal min = minPrice != null ? BigDecimal.valueOf(minPrice) : BigDecimal.ZERO;
+        BigDecimal max = maxPrice != null ? BigDecimal.valueOf(maxPrice) : new BigDecimal("99999999.99");
+
+        List<Product> products;
+
+        if (hasCategory && hasPriceRange && hasCondition) {
+            products = productRepository.searchByKeywordCategoryPriceRangeAndCondition(keyword, category, min, max, condition);
+        } else if (hasCategory && hasPriceRange) {
+            products = productRepository.searchByKeywordCategoryAndPriceRange(keyword, category, min, max);
+        } else if (hasCategory && hasCondition) {
+            products = productRepository.searchByKeywordCategoryAndCondition(keyword, category, condition);
+        } else if (hasPriceRange && hasCondition) {
+            products = productRepository.searchByKeywordPriceRangeAndCondition(keyword, min, max, condition);
+        } else if (hasCategory) {
+            products = productRepository.searchByKeywordAndCategory(keyword, category);
+        } else if (hasPriceRange) {
+            products = productRepository.searchByKeywordAndPriceRange(keyword, min, max);
+        } else if (hasCondition) {
+            products = productRepository.searchByKeywordAndCondition(keyword, condition);
+        } else {
+            products = productRepository.searchActiveByKeyword(keyword);
+        }
+
+        if (sortBy != null) {
+            switch (sortBy) {
+                case "price-asc":
+                    products.sort(Comparator.comparing(Product::getSecondHandPrice));
+                    break;
+                case "price-desc":
+                    products.sort(Comparator.comparing(Product::getSecondHandPrice).reversed());
+                    break;
+                case "newest":
+                default:
+                    products.sort(Comparator.comparing(Product::getCreatedAt).reversed());
+                    break;
+            }
+        } else {
+            products.sort(Comparator.comparing(Product::getCreatedAt).reversed());
+        }
+
         fillSellerAvatars(products);
         return products;
     }

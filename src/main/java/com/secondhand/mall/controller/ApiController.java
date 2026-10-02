@@ -226,6 +226,38 @@ public class ApiController extends BaseApiController {
                 .orElseGet(() -> fail("商品不存在").toMap());
     }
 
+    @GetMapping("/products/search")
+    public Map<String, Object> searchProducts(
+            @RequestParam String q,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) Double minPrice,
+            @RequestParam(required = false) Double maxPrice,
+            @RequestParam(required = false) String condition,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "12") int size) {
+
+        if (q == null || q.trim().isEmpty()) {
+            return fail("搜索关键词不能为空").toMap();
+        }
+
+        List<Product> allProducts = productService.searchProducts(q.trim(), category, minPrice, maxPrice, condition, sortBy);
+
+        int totalItems = allProducts.size();
+        int totalPages = (int) Math.ceil((double) totalItems / size);
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, totalItems);
+
+        List<Product> pageProducts = (fromIndex < totalItems) ? allProducts.subList(fromIndex, toIndex) : List.of();
+
+        return ok("搜索成功")
+                .put("products", pageProducts)
+                .put("total", totalItems)
+                .put("totalPages", totalPages)
+                .put("currentPage", page)
+                .toMap();
+    }
+
     @SuppressWarnings("unchecked")
     @PutMapping("/products/{id}")
     public Map<String, Object> updateProduct(@PathVariable Long id,

@@ -48,6 +48,30 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("SELECT p FROM Product p WHERE p.status = 'active' AND p.name LIKE %:name%")
     List<Product> searchActiveByName(@Param("name") String name);
 
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%)")
+    List<Product> searchActiveByKeyword(@Param("keyword") String keyword);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%) AND p.category = :category")
+    List<Product> searchByKeywordAndCategory(@Param("keyword") String keyword, @Param("category") String category);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%) AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice")
+    List<Product> searchByKeywordAndPriceRange(@Param("keyword") String keyword, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%) AND p.itemCondition = :condition")
+    List<Product> searchByKeywordAndCondition(@Param("keyword") String keyword, @Param("condition") String condition);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%) AND p.category = :category AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice")
+    List<Product> searchByKeywordCategoryAndPriceRange(@Param("keyword") String keyword, @Param("category") String category, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%) AND p.category = :category AND p.itemCondition = :condition")
+    List<Product> searchByKeywordCategoryAndCondition(@Param("keyword") String keyword, @Param("category") String category, @Param("condition") String condition);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%) AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice AND p.itemCondition = :condition")
+    List<Product> searchByKeywordPriceRangeAndCondition(@Param("keyword") String keyword, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice, @Param("condition") String condition);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND (p.name LIKE %:keyword% OR p.description LIKE %:keyword%) AND p.category = :category AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice AND p.itemCondition = :condition")
+    List<Product> searchByKeywordCategoryPriceRangeAndCondition(@Param("keyword") String keyword, @Param("category") String category, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice, @Param("condition") String condition);
+
     @Query("SELECT p FROM Product p WHERE p.status = 'active' ORDER BY p.createdAt DESC")
     List<Product> findAllActiveOrderByNewest();
 
