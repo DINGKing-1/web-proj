@@ -468,6 +468,57 @@ public class ApiController extends BaseApiController {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    @PostMapping("/orders/batch")
+    public Map<String, Object> createOrdersBatch(@RequestBody Map<String, Object> request, HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            Object itemsObj = request.get("items");
+            if (!(itemsObj instanceof List) || ((List<?>) itemsObj).isEmpty()) {
+                return fail("没有可购买的商品").toMap();
+            }
+
+            List<OrderService.OrderItemRequest> items = new java.util.ArrayList<>();
+            for (Object o : (List<Object>) itemsObj) {
+                Map<String, Object> m = (Map<String, Object>) o;
+                int quantity = 1;
+                if (m.get("quantity") != null) {
+                    quantity = Integer.parseInt(m.get("quantity").toString());
+                }
+                items.add(new OrderService.OrderItemRequest(
+                    Long.parseLong(m.get("productId").toString()),
+                    new BigDecimal(m.get("productPrice").toString()),
+                    (String) m.get("productName"),
+                    (String) m.get("category"),
+                    (String) m.get("imageUrl"),
+                    quantity
+                ));
+            }
+
+            List<Long> cartItemIds = new java.util.ArrayList<>();
+            Object cartIdsObj = request.get("cartItemIds");
+            if (cartIdsObj instanceof List) {
+                for (Object id : (List<Object>) cartIdsObj) {
+                    if (id != null) cartItemIds.add(Long.parseLong(id.toString()));
+                }
+            }
+
+            List<Order> orders = orderService.createOrders(
+                username, items,
+                (String) request.get("receiverName"),
+                (String) request.get("receiverPhone"),
+                (String) request.get("receiverAddress"),
+                (String) request.get("paymentMethod"),
+                cartItemIds
+            );
+
+            List<Long> orderIds = orders.stream().map(Order::getId).toList();
+            return ok("订单创建成功").put("orderIds", orderIds).put("count", orders.size()).toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
     @GetMapping("/orders")
     public Map<String, Object> getOrders(@RequestParam(required = false) String status,
                                           HttpSession session) {
@@ -603,23 +654,6 @@ public class ApiController extends BaseApiController {
             String username = getLoginUsername(session);
             addressService.deleteAddress(id, username);
             return ok("删除成功").toMap();
-        } catch (RuntimeException e) {
-            return fail(e.getMessage()).toMap();
-        }
-    }
-
-    @PostMapping("/admin/shutdown")
-    public Map<String, Object> shutdown(HttpSession session) {
-        try {
-            String username = getLoginUsername(session);
-            if (!"admin".equals(username)) {
-                return fail("无权限").toMap();
-            }
-            new Thread(() -> {
-                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-                System.exit(0);
-            }).start();
-            return ok("应用即将关闭").toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }

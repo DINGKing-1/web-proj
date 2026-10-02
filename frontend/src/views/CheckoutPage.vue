@@ -121,43 +121,36 @@ async function submitOrders() {
   submitting.value = true
   const addr = selectedAddress.value
   const receiverAddress = `${addr.province || ''}${addr.city || ''}${addr.district || ''} ${addr.detail}`.trim()
-  let success = 0
-  let fail = 0
+  const items = checkoutItems.value.map((it) => ({
+    productId: it.product.id,
+    productName: it.product.name,
+    productPrice: it.product.secondHandPrice,
+    category: it.product.category,
+    imageUrl: firstImage(it.product),
+    quantity: it.quantity || 1
+  }))
+  const cartItemIds = checkoutItems.value
+    .map((it) => it.cartItemId)
+    .filter((id) => id != null)
 
-  for (const it of checkoutItems.value) {
-    const p = it.product
-    const d = await orderApi.create({
-      productId: p.id,
-      productName: p.name,
-      productPrice: p.secondHandPrice,
-      category: p.category,
-      imageUrl: firstImage(p),
-      quantity: it.quantity || 1,
-      receiverName: addr.receiverName,
-      receiverPhone: addr.phone,
-      receiverAddress,
-      paymentMethod: 'balance'
-    })
-    if (d.success) {
-      success += 1
-      if (it.cartItemId != null) {
-        await cartApi.remove(it.cartItemId)
-      }
-    } else {
-      fail += 1
-    }
-  }
+  const d = await orderApi.createBatch({
+    items,
+    cartItemIds,
+    receiverName: addr.receiverName,
+    receiverPhone: addr.phone,
+    receiverAddress,
+    paymentMethod: 'balance'
+  })
 
   submitting.value = false
   sessionStorage.removeItem('checkoutProductId')
   store.refreshCartCount()
 
-  if (fail === 0) {
-    showToast('全部购买成功！')
+  if (d.success) {
+    showToast('购买成功！')
     setTimeout(() => router.push('/my-orders'), 800)
   } else {
-    showToast(`${success} 件成功，${fail} 件失败`, fail ? 'warning' : 'success')
-    setTimeout(() => router.push('/my-orders'), 1000)
+    showToast(d.message || '下单失败', 'error')
   }
 }
 

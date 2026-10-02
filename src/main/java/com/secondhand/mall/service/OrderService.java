@@ -1,8 +1,10 @@
 package com.secondhand.mall.service;
 
+import com.secondhand.mall.entity.CartItem;
 import com.secondhand.mall.entity.Order;
 import com.secondhand.mall.entity.Product;
 import com.secondhand.mall.entity.User;
+import com.secondhand.mall.repository.CartItemRepository;
 import com.secondhand.mall.repository.OrderRepository;
 import com.secondhand.mall.repository.ProductRepository;
 import com.secondhand.mall.repository.UserRepository;
@@ -11,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,12 +31,53 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final CartItemRepository cartItemRepository;
 
     public OrderService(OrderRepository orderRepository, ProductRepository productRepository,
-                        UserRepository userRepository) {
+                        UserRepository userRepository, CartItemRepository cartItemRepository) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
+        this.cartItemRepository = cartItemRepository;
+    }
+
+    /** 单条下单请求（批量结算的元素） */
+    public record OrderItemRequest(Long productId, BigDecimal productPrice, String productName,
+                                   String category, String imageUrl, int quantity) {}
+
+    /**
+     * 批量下单：同一事务内全部成功或全部失败。
+     * cartItemIds 非空时，下单成功后一并清理购物车项。
+     */
+    @Transactional
+    public List<Order> createOrders(String buyerUsername, List<OrderItemRequest> items,
+                                    String receiverName, String receiverPhone, String receiverAddress,
+                                    String paymentMethod, List<Long> cartItemIds) {
+        if (items == null || items.isEmpty()) {
+            throw new RuntimeException("没有可购买的商品");
+        }
+
+        List<Order> orders = new ArrayList<>(items.size());
+        for (OrderItemRequest item : items) {
+            orders.add(createOrder(
+                buyerUsername, item.productId(), item.productPrice(), item.productName(),
+                item.category(), item.imageUrl(), receiverName, receiverPhone, receiverAddress,
+                paymentMethod, item.quantity() > 0 ? item.quantity() : 1
+            ));
+        }
+
+        if (cartItemIds != null && !cartItemIds.isEmpty()) {
+            for (Long cartItemId : cartItemIds) {
+                if (cartItemId == null) continue;
+                cartItemRepository.findById(cartItemId).ifPresent((CartItem cartItem) -> {
+                    if (buyerUsername.equals(cartItem.getUsername())) {
+                        cartItemRepository.delete(cartItem);
+                    }
+                });
+            }
+        }
+
+        return orders;
     }
 
     @Transactional

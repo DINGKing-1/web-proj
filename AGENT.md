@@ -118,6 +118,7 @@ src/main/resources/
 | GET | `/api/user/products` | 我的商品 |
 | POST/GET/DELETE | `/api/cart*` | 购物车 |
 | POST | `/api/orders` | 创建订单 |
+| POST | `/api/orders/batch` | 批量下单（同事务，全成或全败，并清理购物车） |
 | GET | `/api/orders`、`/api/orders/{id}` | 订单列表 / 详情 |
 | PUT | `/api/orders/{id}` | 更新订单状态（status, trackingNumber） |
 | POST | `/api/orders/{id}/cancel`、`/complete` | 取消 / 完成 |
@@ -135,10 +136,11 @@ src/main/resources/
 | GET/DELETE | `/api/admin/products`、`/api/admin/products/{id}` | 商品管理 |
 | GET/DELETE | `/api/admin/users`、`/api/admin/users/{id}` | 用户管理（响应不含密码） |
 
-### 内部 API
+### 内部 / 运维 API
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/internal/shutdown` | 优雅关闭（无需登录） |
+| POST | `/internal/shutdown` | 本地脚本关闭（无需登录，stop.ps1 使用） |
+| POST | `/api/graceful-shutdown` | 管理员优雅关闭（SpringApplication.exit） |
 
 ---
 
@@ -194,7 +196,7 @@ src/main/resources/
 ### 要点
 - 订单编号：随机 6 位数字，唯一性校验重试
 - 取消仅限 unshipped；发货写 trackingNumber
-- 下单非原子：逐件 `POST /api/orders` + 删购物车项
+- 结算走 `POST /api/orders/batch`：同事务全成或全败，并清理购物车项
 
 ---
 
@@ -229,7 +231,8 @@ src/main/resources/
 ## 测试
 
 ```bash
-.\.maven\apache-maven-3.9.6\bin\mvn.cmd test
+.\.maven\apache-maven-3.9.6\bin\mvn.cmd test   # 后端 23 个
+cd frontend && npm test                        # 前端工具函数冒烟
 ```
 
-21 个测试全部通过，覆盖 AdminService、BigDecimal、CartService、ChatService、CommentService、OrderService、ProductService、UserService。
+后端覆盖 AdminService、BigDecimal、CartService、ChatService、CommentService、OrderService（含批量下单事务）、ProductService、UserService。

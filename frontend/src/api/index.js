@@ -42,6 +42,7 @@ export const cartApi = {
 
 export const orderApi = {
   create: (payload) => api.post('/api/orders', payload),
+  createBatch: (payload) => api.post('/api/orders/batch', payload),
   list: (status) => api.get(`/api/orders${status ? `?status=${encodeURIComponent(status)}` : ''}`),
   detail: (id) => api.get(`/api/orders/${id}`),
   update: (id, payload) => api.put(`/api/orders/${id}`, payload),

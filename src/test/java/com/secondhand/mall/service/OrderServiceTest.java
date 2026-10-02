@@ -130,6 +130,48 @@ class OrderServiceTest {
     }
 
     @Test
+    void testCreateOrdersBatch_AllOrNothing() {
+        Product p1 = createTestProduct("seller1", 50.0, 5);
+        Product p2 = createTestProduct("seller2", 30.0, 5);
+        createTestUser("seller1", 0.0);
+        createTestUser("seller2", 0.0);
+        createTestUser("buyer1", 100.0);
+
+        var items = List.of(
+                new OrderService.OrderItemRequest(p1.getId(), new BigDecimal("50.00"), "Test Product", "electronics", "test.jpg", 1),
+                new OrderService.OrderItemRequest(p2.getId(), new BigDecimal("30.00"), "Test Product", "electronics", "test.jpg", 1),
+                // 第三条价格不一致，应导致整批失败
+                new OrderService.OrderItemRequest(p1.getId(), new BigDecimal("99.00"), "Test Product", "electronics", "test.jpg", 1)
+        );
+
+        assertThrows(RuntimeException.class, () ->
+                orderService.createOrders("buyer1", items, "R", "138", "Addr", "balance", List.of()));
+
+        assertEquals(0, orderRepository.count(), "batch should roll back all orders");
+        User buyer = userRepository.findByUsername("buyer1").orElseThrow();
+        assertEquals(0, new BigDecimal("100.00").compareTo(buyer.getBalance()), "balance should be unchanged");
+    }
+
+    @Test
+    void testCreateOrdersBatch_Success() {
+        Product p1 = createTestProduct("seller1", 50.0, 5);
+        Product p2 = createTestProduct("seller2", 30.0, 5);
+        createTestUser("seller1", 0.0);
+        createTestUser("seller2", 0.0);
+        createTestUser("buyer1", 100.0);
+
+        var items = List.of(
+                new OrderService.OrderItemRequest(p1.getId(), new BigDecimal("50.00"), "Test Product", "electronics", "test.jpg", 1),
+                new OrderService.OrderItemRequest(p2.getId(), new BigDecimal("30.00"), "Test Product", "electronics", "test.jpg", 1)
+        );
+
+        var orders = orderService.createOrders("buyer1", items, "R", "138", "Addr", "balance", List.of());
+        assertEquals(2, orders.size());
+        assertEquals(2, orderRepository.count());
+        User buyer = userRepository.findByUsername("buyer1").orElseThrow();
+        assertEquals(0, new BigDecimal("20.00").compareTo(buyer.getBalance()));
+    }
+    @Test
     void testInvalidStateTransition_ShouldThrowException() {
         Product product = createTestProduct("seller1", 100.0, 1);
         createTestUser("seller1", 10000.0);

@@ -29,6 +29,18 @@ const changingPwd = ref(false)
 const uploadingAvatar = ref(false)
 const avatarInput = ref(null)
 const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
+const addresses = ref([])
+const addrEditing = ref(null) // null | 'new' | address object
+const addrForm = ref({
+  receiverName: '',
+  phone: '',
+  province: '',
+  city: '',
+  district: '',
+  detail: '',
+  isDefault: false
+})
+const savingAddr = ref(false)
 const editing = ref(null)
 const editForm = ref({
   name: '',
@@ -77,6 +89,12 @@ async function load() {
   }
   const p = await productApi.mine()
   if (p.success) myProducts.value = p.products || []
+  await loadAddresses()
+}
+
+async function loadAddresses() {
+  const d = await userApi.addresses()
+  if (d.success) addresses.value = d.addresses || []
 }
 
 async function saveProfile() {
@@ -249,6 +267,89 @@ function statusMeta(status) {
   return { label: '已下架', cls: 'off' }
 }
 
+function openAddrCreate() {
+  addrEditing.value = 'new'
+  addrForm.value = {
+    receiverName: '',
+    phone: '',
+    province: '',
+    city: '',
+    district: '',
+    detail: '',
+    isDefault: addresses.value.length === 0
+  }
+}
+
+function openAddrEdit(a) {
+  addrEditing.value = a
+  addrForm.value = {
+    receiverName: a.receiverName || '',
+    phone: a.phone || '',
+    province: a.province || '',
+    city: a.city || '',
+    district: a.district || '',
+    detail: a.detail || '',
+    isDefault: !!a.isDefault
+  }
+}
+
+async function saveAddress() {
+  const f = addrForm.value
+  if (!f.receiverName.trim() || !f.phone.trim() || !f.detail.trim()) {
+    showToast('请填写收货人、手机号和详细地址', 'warning')
+    return
+  }
+  savingAddr.value = true
+  const payload = {
+    receiverName: f.receiverName.trim(),
+    phone: f.phone.trim(),
+    province: f.province.trim(),
+    city: f.city.trim(),
+    district: f.district.trim(),
+    detail: f.detail.trim(),
+    isDefault: !!f.isDefault
+  }
+  const isNew = addrEditing.value === 'new'
+  const d = isNew
+    ? await userApi.addAddress(payload)
+    : await userApi.updateAddress(addrEditing.value.id, payload)
+  savingAddr.value = false
+  if (d.success) {
+    showToast(isNew ? '地址已添加' : '地址已更新')
+    addrEditing.value = null
+    await loadAddresses()
+  } else {
+    showToast(d.message || '保存失败', 'error')
+  }
+}
+
+async function setDefaultAddress(a) {
+  const d = await userApi.updateAddress(a.id, { isDefault: true })
+  if (d.success) {
+    showToast('已设为默认地址')
+    await loadAddresses()
+  } else {
+    showToast(d.message || '设置失败', 'error')
+  }
+}
+
+async function removeAddress(a) {
+  const ok = await confirmDialog({
+    title: '删除地址',
+    message: `确定删除「${a.receiverName}」的收货地址吗？`,
+    type: 'warning',
+    okText: '删除'
+  })
+  if (!ok) return
+  const d = await userApi.deleteAddress(a.id)
+  if (d.success) {
+    showToast('地址已删除')
+    await loadAddresses()
+  } else {
+    showToast(d.message || '删除失败', 'error')
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -277,6 +378,9 @@ onMounted(load)
             </button>
             <button class="nav-item" :class="{ active: panel === 'products' }" @click="panel = 'products'">
               <i class="fas fa-box"></i> 我的商品
+            </button>
+            <button class="nav-item" :class="{ active: panel === 'addresses' }" @click="panel = 'addresses'">
+              <i class="fas fa-location-dot"></i> 收货地址
             </button>
             <button class="nav-item" :class="{ active: panel === 'security' }" @click="panel = 'security'">
               <i class="fas fa-shield-halved"></i> 账号安全
@@ -371,6 +475,33 @@ onMounted(load)
             </div>
           </div>
 
+          <div v-else-if="panel === 'addresses'" class="card card-pad">
+            <div class="section-head">
+              <h2 class="h2">收货地址</h2>
+              <button class="btn btn-primary btn-sm" @click="openAddrCreate">新增地址</button>
+            </div>
+            <div v-if="!addresses.length" class="muted">还没有收货地址</div>
+            <div v-else class="addr-list">
+              <div v-for="a in addresses" :key="a.id" class="addr-item">
+                <div class="addr-main">
+                  <div class="addr-line">
+                    <strong>{{ a.receiverName }}</strong>
+                    <span class="muted">{{ a.phone }}</span>
+                    <span v-if="a.isDefault" class="chip on">默认</span>
+                  </div>
+                  <div class="muted text-sm">
+                    {{ [a.province, a.city, a.district].filter(Boolean).join(' ') }} {{ a.detail }}
+                  </div>
+                </div>
+                <div class="addr-actions">
+                  <button v-if="!a.isDefault" class="btn btn-outline btn-sm" @click="setDefaultAddress(a)">设为默认</button>
+                  <button class="btn btn-outline btn-sm" @click="openAddrEdit(a)">编辑</button>
+                  <button class="btn btn-outline btn-sm danger" @click="removeAddress(a)">删除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-else class="card card-pad">
             <h2 class="h2 mb-3">修改密码</h2>
             <div class="form-group">
@@ -391,6 +522,52 @@ onMounted(load)
           </div>
         </section>
       </div>
+      <div v-if="addrEditing" class="modal-backdrop" @click.self="addrEditing = null">
+        <div class="modal card">
+          <h2 class="h2 mb-3">{{ addrEditing === 'new' ? '新增地址' : '编辑地址' }}</h2>
+          <div class="row">
+            <div class="form-group">
+              <label>收货人</label>
+              <input v-model="addrForm.receiverName" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>手机号</label>
+              <input v-model="addrForm.phone" class="form-input" />
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>省</label>
+              <input v-model="addrForm.province" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>市</label>
+              <input v-model="addrForm.city" class="form-input" />
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>区/县</label>
+              <input v-model="addrForm.district" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>详细地址</label>
+              <input v-model="addrForm.detail" class="form-input" />
+            </div>
+          </div>
+          <label class="check-line">
+            <input v-model="addrForm.isDefault" type="checkbox" />
+            设为默认地址
+          </label>
+          <div class="modal-actions">
+            <button class="btn btn-outline" @click="addrEditing = null">取消</button>
+            <button class="btn btn-primary" :disabled="savingAddr" @click="saveAddress">
+              {{ savingAddr ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="editing" class="modal-backdrop" @click.self="editing = null">
         <div class="modal card">
           <h2 class="h2 mb-3">编辑商品</h2>
@@ -579,6 +756,38 @@ onMounted(load)
   }
 }
 
+.addr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.addr-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.addr-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.addr-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-size: 14px;
+}
 .prod-link {
   display: block;
   color: inherit;
