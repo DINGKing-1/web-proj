@@ -1,10 +1,12 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { adminApi } from '@/api'
+import { adminApi, authApi } from '@/api'
 import { showToast } from '@/composables/ui'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const store = useUserStore()
 const username = ref('')
 const password = ref('')
 const errorMsg = ref('')
@@ -18,14 +20,27 @@ async function submit() {
   }
   loading.value = true
   const d = await adminApi.login(username.value.trim(), password.value)
-  loading.value = false
   if (d.success) {
-    sessionStorage.setItem('adminUser', JSON.stringify({ username: d.username }))
+    // 同步完整登录态（含 role=admin），供路由守卫与前台导航共用
+    const s = await authApi.session()
+    if (s.success) {
+      store.login({
+        username: s.username,
+        nickname: s.nickname,
+        avatar: s.avatar,
+        role: s.role,
+        balance: s.balance
+      })
+    } else {
+      store.login({ username: d.username, nickname: d.username, role: 'admin', avatar: '', balance: 0 })
+    }
+    loading.value = false
     showToast('登录成功')
     router.replace('/admin/dashboard')
-  } else {
-    errorMsg.value = d.message || '登录失败'
+    return
   }
+  loading.value = false
+  errorMsg.value = d.message || '登录失败'
 }
 </script>
 

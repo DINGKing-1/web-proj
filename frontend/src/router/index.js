@@ -17,10 +17,10 @@ const routes = [
   { path: '/user', name: 'user', component: () => import('@/views/UserPage.vue'), meta: { auth: true } },
   { path: '/favorites', name: 'favorites', component: () => import('@/views/FavoritesPage.vue'), meta: { auth: true } },
   { path: '/messages', name: 'messages', component: () => import('@/views/MessagesPage.vue'), meta: { auth: true } },
-  { path: '/admin', name: 'admin-login', component: () => import('@/views/admin/AdminLoginPage.vue'), meta: { bare: true } },
-  { path: '/admin/dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/AdminDashboardPage.vue'), meta: { bare: true, auth: true } },
-  { path: '/admin/products', name: 'admin-products', component: () => import('@/views/admin/AdminProductsPage.vue'), meta: { bare: true, auth: true } },
-  { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminUsersPage.vue'), meta: { bare: true, auth: true } },
+  { path: '/admin', name: 'admin-login', component: () => import('@/views/admin/AdminLoginPage.vue'), meta: { bare: true, guestOnly: true } },
+  { path: '/admin/dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/AdminDashboardPage.vue'), meta: { bare: true, auth: true, admin: true } },
+  { path: '/admin/products', name: 'admin-products', component: () => import('@/views/admin/AdminProductsPage.vue'), meta: { bare: true, auth: true, admin: true } },
+  { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminUsersPage.vue'), meta: { bare: true, auth: true, admin: true } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFound.vue') }
 ]
 
@@ -42,6 +42,9 @@ router.beforeEach((to) => {
   }
   if (to.meta.auth && !user) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.admin && user?.role !== 'admin') {
+    return { path: '/admin' }
   }
   return true
 })

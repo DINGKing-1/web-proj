@@ -5,13 +5,15 @@ import { adminApi } from '@/api'
 import { formatPrice } from '@/api/client'
 import { showToast, confirmDialog } from '@/composables/ui'
 import AdminShell from '@/components/AdminShell.vue'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const store = useUserStore()
 const users = ref([])
 const loading = ref(true)
 
 async function load() {
-  if (!sessionStorage.getItem('adminUser')) {
+  if (store.user?.role !== 'admin') {
     router.replace('/admin')
     return
   }
@@ -20,7 +22,7 @@ async function load() {
   if (d.success) {
     users.value = d.users || []
   } else {
-    sessionStorage.removeItem('adminUser')
+    store.setUser(null)
     router.replace('/admin')
   }
   loading.value = false

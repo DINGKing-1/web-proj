@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
 import VChart from '@/components/chart.js'
 import AdminShell from '@/components/AdminShell.vue'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const store = useUserStore()
 const stats = reactive({ totalProducts: 0, totalUsers: 0, totalComments: 0 })
 const products = ref([])
 const loading = ref(true)
@@ -80,7 +82,7 @@ const topProducts = computed(() =>
 )
 
 async function load() {
-  if (!sessionStorage.getItem('adminUser')) {
+  if (store.user?.role !== 'admin') {
     router.replace('/admin')
     return
   }
@@ -92,7 +94,7 @@ async function load() {
     stats.totalComments = s.totalComments || 0
     products.value = p.success ? p.products || [] : []
   } else {
-    sessionStorage.removeItem('adminUser')
+    store.setUser(null)
     router.replace('/admin')
   }
   loading.value = false

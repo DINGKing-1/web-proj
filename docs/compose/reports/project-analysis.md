@@ -1,10 +1,12 @@
 # 优品汇 - 二手交易平台 系统分析报告
 
+> **状态说明（2026-10）**：本文档描述的是重构前的 Thymeleaf SSR 版本。当前前端已改为 Vue 3 SPA（`frontend/`），由 `SpaController` 回退到 `index.html`；后端 REST API 与数据库模型基本未变。最新工程说明见根目录 `AGENT.md`。
+
 ## 一、项目概述
 
 - **项目名称**：优品汇 (secondhand-mall)
 - **项目类型**：B2C 二手商品交易平台（毕业设计）
-- **架构模式**：前后端不分离，Thymeleaf 服务端渲染 (SSR)
+- **架构模式**：前后端不分离，Thymeleaf 服务端渲染 (SSR)（**历史版本**；现行前端为 Vue 3 SPA）
 - **运行端口**：localhost:8080
 - **数据库**：MySQL 8.0+，库名 seconddata
 

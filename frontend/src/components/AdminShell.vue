@@ -1,13 +1,21 @@
 <script setup>
 import { useRouter } from 'vue-router'
+import { authApi } from '@/api'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const store = useUserStore()
 const props = defineProps({
   active: { type: String, default: 'dashboard' }
 })
 
-function logout() {
-  sessionStorage.removeItem('adminUser')
+async function logout() {
+  try {
+    await authApi.logout()
+  } catch {
+    // ignore network errors, still clear local state
+  }
+  store.setUser(null)
   router.replace('/admin')
 }
 </script>

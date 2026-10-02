@@ -1,9 +1,9 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { userApi, productApi, uploadApi } from '@/api'
-import { formatPrice, formatTime, firstImage } from '@/api/client'
-import { showToast } from '@/composables/ui'
+import { formatPrice, formatTime, firstImage, CATEGORIES } from '@/api/client'
+import { showToast, confirmDialog } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -28,6 +28,18 @@ const saving = ref(false)
 const changingPwd = ref(false)
 const uploadingAvatar = ref(false)
 const avatarInput = ref(null)
+const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
+const editing = ref(null)
+const editForm = ref({
+  name: '',
+  category: '',
+  secondHandPrice: '',
+  originalPrice: '',
+  condition: '',
+  quantity: 1,
+  description: ''
+})
+const savingEdit = ref(false)
 
 const roleLabel = computed(() => {
   if (profile.value.role === 'admin') return '管理员'
@@ -144,6 +156,99 @@ async function onAvatarChange(e) {
   }
 }
 
+function openEdit(p) {
+  editing.value = p
+  editForm.value = {
+    name: p.name || '',
+    category: p.category || '',
+    secondHandPrice: p.secondHandPrice ?? '',
+    originalPrice: p.originalPrice ?? '',
+    condition: p.itemCondition || p.condition || '',
+    quantity: p.quantity ?? 1,
+    description: p.description || ''
+  }
+}
+
+async function saveEdit() {
+  const p = editing.value
+  const f = editForm.value
+  if (!p) return
+  if (!f.name.trim() || !f.category) {
+    showToast('请填写名称并选择分类', 'warning')
+    return
+  }
+  if (!(Number(f.secondHandPrice) > 0)) {
+    showToast('售价必须大于 0', 'warning')
+    return
+  }
+  if (f.originalPrice !== '' && Number(f.secondHandPrice) > Number(f.originalPrice)) {
+    showToast('二手价不能高于原价', 'warning')
+    return
+  }
+  savingEdit.value = true
+  const payload = {
+    name: f.name.trim(),
+    category: f.category,
+    secondHandPrice: Number(f.secondHandPrice),
+    condition: f.condition || undefined,
+    quantity: Number(f.quantity) || 1,
+    description: f.description
+  }
+  if (f.originalPrice !== '' && f.originalPrice !== null) {
+    payload.originalPrice = Number(f.originalPrice)
+  }
+  const d = await productApi.update(p.id, payload)
+  savingEdit.value = false
+  if (d.success) {
+    showToast('商品已更新')
+    editing.value = null
+    load()
+  } else {
+    showToast(d.message || '更新失败', 'error')
+  }
+}
+
+async function toggleShelf(p) {
+  const next = p.status === 'active' ? 'inactive' : 'active'
+  const label = next === 'active' ? '重新上架' : '下架'
+  const ok = await confirmDialog({
+    title: label,
+    message: `确定${label}「${p.name}」吗？`,
+    type: 'warning'
+  })
+  if (!ok) return
+  const d = await productApi.update(p.id, { status: next })
+  if (d.success) {
+    showToast(next === 'active' ? '已重新上架' : '已下架')
+    load()
+  } else {
+    showToast(d.message || '操作失败', 'error')
+  }
+}
+
+async function removeProduct(p) {
+  const ok = await confirmDialog({
+    title: '删除商品',
+    message: `确定删除「${p.name}」吗？删除后前台将不可见。`,
+    type: 'warning',
+    okText: '删除'
+  })
+  if (!ok) return
+  const d = await productApi.remove(p.id)
+  if (d.success) {
+    showToast('商品已删除')
+    load()
+  } else {
+    showToast(d.message || '删除失败', 'error')
+  }
+}
+
+function statusMeta(status) {
+  if (status === 'sold') return { label: '已售出', cls: 'sold' }
+  if (status === 'active') return { label: '在售', cls: 'on' }
+  return { label: '已下架', cls: 'off' }
+}
+
 onMounted(load)
 </script>
 
@@ -231,30 +336,38 @@ onMounted(load)
             </div>
             <div v-if="!myProducts.length" class="muted">还没有发布商品</div>
             <div v-else class="prod-grid">
-              <router-link
-                v-for="p in myProducts"
-                :key="p.id"
-                :to="`/product/${p.id}`"
-                class="prod-card"
-              >
-                <div class="thumb">
-                  <img
-                    :src="firstImage(p) || '/user-avatar/default.jpg'"
-                    alt=""
-                    @error="$event.target.src = '/user-avatar/default.jpg'"
-                  />
-                  <span class="chip" :class="p.status === 'sold' ? 'sold' : 'on'">
-                    {{ p.status === 'sold' ? '已售出' : '在售' }}
-                  </span>
-                </div>
-                <div class="prod-body">
-                  <div class="name truncate">{{ p.name }}</div>
-                  <div>
-                    <span class="price">¥{{ formatPrice(p.secondHandPrice) }}</span>
-                    <span class="price-origin">¥{{ formatPrice(p.originalPrice) }}</span>
+              <div v-for="p in myProducts" :key="p.id" class="prod-card">
+                <router-link :to="`/product/${p.id}`" class="prod-link">
+                  <div class="thumb">
+                    <img
+                      :src="firstImage(p) || '/user-avatar/default.jpg'"
+                      alt=""
+                      @error="$event.target.src = '/user-avatar/default.jpg'"
+                    />
+                    <span class="chip" :class="statusMeta(p.status).cls">
+                      {{ statusMeta(p.status).label }}
+                    </span>
                   </div>
+                  <div class="prod-body">
+                    <div class="name truncate">{{ p.name }}</div>
+                    <div>
+                      <span class="price">¥{{ formatPrice(p.secondHandPrice) }}</span>
+                      <span class="price-origin">¥{{ formatPrice(p.originalPrice) }}</span>
+                    </div>
+                  </div>
+                </router-link>
+                <div class="prod-actions">
+                  <button class="btn btn-outline btn-sm" @click="openEdit(p)">编辑</button>
+                  <button
+                    v-if="p.status !== 'sold'"
+                    class="btn btn-outline btn-sm"
+                    @click="toggleShelf(p)"
+                  >
+                    {{ p.status === 'active' ? '下架' : '上架' }}
+                  </button>
+                  <button class="btn btn-outline btn-sm danger" @click="removeProduct(p)">删除</button>
                 </div>
-              </router-link>
+              </div>
             </div>
           </div>
 
@@ -277,6 +390,53 @@ onMounted(load)
             </button>
           </div>
         </section>
+      </div>
+      <div v-if="editing" class="modal-backdrop" @click.self="editing = null">
+        <div class="modal card">
+          <h2 class="h2 mb-3">编辑商品</h2>
+          <div class="form-group">
+            <label>商品名称</label>
+            <input v-model="editForm.name" class="form-input" />
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>分类</label>
+              <select v-model="editForm.category" class="form-input">
+                <option v-for="c in CATEGORIES.filter((x) => x !== '全部')" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>成色</label>
+              <select v-model="editForm.condition" class="form-input">
+                <option v-for="c in CONDITIONS" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>售价（元）</label>
+              <input v-model="editForm.secondHandPrice" type="number" min="0" step="0.01" class="form-input" />
+            </div>
+            <div class="form-group">
+              <label>原价（元）</label>
+              <input v-model="editForm.originalPrice" type="number" min="0" step="0.01" class="form-input" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>库存</label>
+            <input v-model="editForm.quantity" type="number" min="0" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label>描述</label>
+            <textarea v-model="editForm.description" class="form-input" rows="3"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-outline" @click="editing = null">取消</button>
+            <button class="btn btn-primary" :disabled="savingEdit" @click="saveEdit">
+              {{ savingEdit ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -417,6 +577,51 @@ onMounted(load)
   .prod-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+.prod-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+.prod-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 10px;
+  flex-wrap: wrap;
+}
+.prod-actions .btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.prod-actions .danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, white);
+}
+.chip.off {
+  background: var(--ink-soft);
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: var(--z-modal-backdrop, 400);
+  padding: 20px;
+}
+.modal {
+  width: min(100%, 520px);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 24px;
+  z-index: var(--z-modal, 500);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
 }
 </style>
 
