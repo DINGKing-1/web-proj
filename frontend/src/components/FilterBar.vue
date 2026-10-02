@@ -1,5 +1,8 @@
 <script setup>
-/** 商品筛选栏：排序 / 价格 / 成色，样式对齐设计系统 form-* + btn */
+import { nextTick } from 'vue'
+import AppSelect from '@/components/AppSelect.vue'
+
+/** 商品筛选栏：排序 / 价格 / 成色，样式对齐设计系统 */
 const props = defineProps({
   sortBy: { type: String, default: 'newest' },
   minPrice: { type: String, default: '' },
@@ -15,9 +18,42 @@ const SORTS = [
   { label: '价格从低到高', value: 'price-asc' },
   { label: '价格从高到低', value: 'price-desc' }
 ]
-const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
-const CATEGORIES = ['手机', '笔记本电脑', '耳机', '相机', '手机壳', '空调', '冰箱', '半身裙', '其他']
+const CONDITIONS = [
+  { label: '不限', value: '' },
+  { label: '全新', value: '全新' },
+  { label: '几乎全新', value: '几乎全新' },
+  { label: '轻微使用', value: '轻微使用' },
+  { label: '明显使用', value: '明显使用' },
+  { label: '重度使用', value: '重度使用' }
+]
+const CATEGORIES = [
+  { label: '全部分类', value: '' },
+  { label: '手机', value: '手机' },
+  { label: '笔记本电脑', value: '笔记本电脑' },
+  { label: '耳机', value: '耳机' },
+  { label: '相机', value: '相机' },
+  { label: '手机壳', value: '手机壳' },
+  { label: '空调', value: '空调' },
+  { label: '冰箱', value: '冰箱' },
+  { label: '半身裙', value: '半身裙' },
+  { label: '其他', value: '其他' }
+]
 
+async function onSortChange(v) {
+  emit('update:sortBy', v)
+  await nextTick()
+  emit('apply')
+}
+async function onConditionChange(v) {
+  emit('update:condition', v)
+  await nextTick()
+  emit('apply')
+}
+async function onCategoryChange(v) {
+  emit('update:category', v)
+  await nextTick()
+  emit('apply')
+}
 function onApply() {
   emit('apply')
 }
@@ -35,28 +71,25 @@ function onReset() {
   <section class="filter-bar card card-pad" aria-label="商品筛选">
     <div class="filter-grid">
       <div class="field">
-        <label for="f-sort">排序</label>
-        <select
-          id="f-sort"
-          class="form-select"
-          :value="sortBy"
-          @change="emit('update:sortBy', $event.target.value)"
-        >
-          <option v-for="s in SORTS" :key="s.value" :value="s.value">{{ s.label }}</option>
-        </select>
+        <label id="f-sort-label">排序</label>
+        <AppSelect
+          :model-value="sortBy"
+          :options="SORTS"
+          placeholder="排序方式"
+          aria-labelledby="f-sort-label"
+          @update:model-value="onSortChange"
+        />
       </div>
 
       <div v-if="showCategory" class="field">
-        <label for="f-cat">分类</label>
-        <select
-          id="f-cat"
-          class="form-select"
-          :value="category"
-          @change="emit('update:category', $event.target.value)"
-        >
-          <option value="">全部分类</option>
-          <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
-        </select>
+        <label id="f-cat-label">分类</label>
+        <AppSelect
+          :model-value="category"
+          :options="CATEGORIES"
+          placeholder="全部分类"
+          aria-labelledby="f-cat-label"
+          @update:model-value="onCategoryChange"
+        />
       </div>
 
       <div class="field">
@@ -90,16 +123,14 @@ function onReset() {
       </div>
 
       <div class="field">
-        <label for="f-cond">成色</label>
-        <select
-          id="f-cond"
-          class="form-select"
-          :value="condition"
-          @change="emit('update:condition', $event.target.value)"
-        >
-          <option value="">不限</option>
-          <option v-for="c in CONDITIONS" :key="c" :value="c">{{ c }}</option>
-        </select>
+        <label id="f-cond-label">成色</label>
+        <AppSelect
+          :model-value="condition"
+          :options="CONDITIONS"
+          placeholder="不限"
+          aria-labelledby="f-cond-label"
+          @update:model-value="onConditionChange"
+        />
       </div>
 
       <div class="field actions">
@@ -110,6 +141,7 @@ function onReset() {
         </div>
       </div>
     </div>
+    <p class="hint">改排序 / 成色会立即生效，价格区间可点「筛选」或按回车</p>
   </section>
 </template>
 
@@ -140,6 +172,11 @@ function onReset() {
 .btn-row .btn {
   flex: 1;
   white-space: nowrap;
+}
+.hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 @media (max-width: 1024px) {
   .filter-grid {

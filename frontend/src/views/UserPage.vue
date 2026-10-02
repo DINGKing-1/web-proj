@@ -6,6 +6,7 @@ import { formatPrice, formatTime, firstImage, CATEGORIES } from '@/api/client'
 import { showToast, confirmDialog } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 import AppModal from '@/components/AppModal.vue'
+import AppSelect from '@/components/AppSelect.vue'
 
 const router = useRouter()
 const store = useUserStore()
@@ -30,6 +31,8 @@ const changingPwd = ref(false)
 const uploadingAvatar = ref(false)
 const avatarInput = ref(null)
 const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
+const categoryOptions = CATEGORIES.filter((x) => x !== '全部').map((c) => ({ label: c, value: c }))
+const conditionOptions = CONDITIONS.map((c) => ({ label: c, value: c }))
 const addresses = ref([])
 const addrEditing = ref(null) // null | 'new' | address object
 const addrForm = ref({
@@ -584,15 +587,19 @@ onMounted(load)
           <div class="row">
             <div class="form-group">
               <label>分类</label>
-              <select v-model="editForm.category" class="form-select">
-                <option v-for="c in CATEGORIES.filter((x) => x !== '全部')" :key="c" :value="c">{{ c }}</option>
-              </select>
+              <AppSelect
+                v-model="editForm.category"
+                :options="categoryOptions"
+                placeholder="请选择分类"
+              />
             </div>
             <div class="form-group">
               <label>成色</label>
-              <select v-model="editForm.condition" class="form-select">
-                <option v-for="c in CONDITIONS" :key="c" :value="c">{{ c }}</option>
-              </select>
+              <AppSelect
+                v-model="editForm.condition"
+                :options="conditionOptions"
+                placeholder="请选择成色"
+              />
             </div>
           </div>
           <div class="row">

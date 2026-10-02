@@ -3,6 +3,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { productApi, uploadApi } from '@/api'
 import { CATEGORIES } from '@/api/client'
+import AppSelect from '@/components/AppSelect.vue'
 import { showToast } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 
@@ -23,6 +24,8 @@ const uploading = ref(false)
 const submitting = ref(false)
 
 const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
+const categoryOptions = CATEGORIES.filter((x) => x !== '全部').map((c) => ({ label: c, value: c }))
+const conditionOptions = CONDITIONS.map((c) => ({ label: c, value: c }))
 const MAX_SIZE = 10 * 1024 * 1024
 
 const errors = reactive({ name: '', category: '', secondHandPrice: '', condition: '' })
@@ -203,16 +206,13 @@ async function submit() {
         <div class="row">
           <div class="form-group">
             <label for="up-cat">分类</label>
-            <select
+            <AppSelect
               id="up-cat"
               v-model="form.category"
-              class="form-select"
-              :class="{ invalid: errors.category }"
+              :options="categoryOptions"
+              placeholder="请选择分类"
               @change="errors.category = ''"
-            >
-              <option value="" disabled>请选择分类</option>
-              <option v-for="c in CATEGORIES.filter((x) => x !== '全部')" :key="c" :value="c">{{ c }}</option>
-            </select>
+            />
             <p v-if="errors.category" class="field-error">{{ errors.category }}</p>
           </div>
           <div class="form-group">
@@ -246,16 +246,13 @@ async function submit() {
           </div>
           <div class="form-group">
             <label for="up-cond">成色</label>
-            <select
+            <AppSelect
               id="up-cond"
               v-model="form.condition"
-              class="form-select"
-              :class="{ invalid: errors.condition }"
+              :options="conditionOptions"
+              placeholder="请选择成色"
               @change="errors.condition = ''"
-            >
-              <option value="" disabled>请选择成色</option>
-              <option v-for="c in CONDITIONS" :key="c" :value="c">{{ c }}</option>
-            </select>
+            />
             <p v-if="errors.condition" class="field-error">{{ errors.condition }}</p>
           </div>
         </div>
