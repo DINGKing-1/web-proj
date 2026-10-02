@@ -270,6 +270,14 @@ public class ProductService {
         return products;
     }
 
+    /** 某卖家的在售商品（进店逛逛） */
+    public List<Product> getSellerActiveProducts(String sellerUsername) {
+        List<Product> products = productRepository.findByStatusAndSellerUsername("active", sellerUsername);
+        products.sort(Comparator.comparing(Product::getCreatedAt).reversed());
+        fillSellerAvatars(products);
+        return products;
+    }
+
     public List<Product> getAllActiveProducts() {
         List<Product> products = productRepository.findByStatus("active");
         fillSellerAvatars(products);

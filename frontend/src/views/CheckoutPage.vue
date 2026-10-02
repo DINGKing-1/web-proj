@@ -40,11 +40,14 @@ function imgOf(it) {
 async function load() {
   loading.value = true
   const buyId = sessionStorage.getItem('checkoutProductId')
+  let buyQty = Number(sessionStorage.getItem('checkoutQuantity') || '1') || 1
 
   if (buyId) {
     const d = await productApi.detail(buyId)
     if (d.success && d.product) {
-      checkoutItems.value = [{ product: d.product, quantity: 1, cartItemId: null }]
+      const maxQ = Math.max(1, Number(d.product.quantity ?? 1))
+      buyQty = Math.min(Math.max(1, buyQty), maxQ)
+      checkoutItems.value = [{ product: d.product, quantity: buyQty, cartItemId: null }]
     } else {
       showToast('商品不存在', 'error')
     }
@@ -151,6 +154,8 @@ async function submitOrders() {
 
   submitting.value = false
   sessionStorage.removeItem('checkoutProductId')
+  sessionStorage.removeItem('checkoutQuantity')
+  sessionStorage.removeItem('checkout')
   store.refreshCartCount()
 
   if (d.success) {

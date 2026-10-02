@@ -36,6 +36,11 @@ async function load(p = 0) {
   if (categoryName.value && categoryName.value !== '全部') {
     params.category = categoryName.value
   }
+  const seller = route.query.seller
+  if (seller) {
+    params.seller = String(seller)
+    categoryName.value = '店铺好物'
+  }
   const d = await productApi.list(params)
   if (d.success) {
     products.value = d.products || []

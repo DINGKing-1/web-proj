@@ -189,18 +189,54 @@ public class ApiController extends BaseApiController {
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(required = false) String condition,
             @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String seller,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size) {
 
         // 获取筛选后的商品
         List<Product> allProducts;
-        boolean hasFilters = (category != null && !category.isEmpty()) || minPrice != null || maxPrice != null || (condition != null && !condition.isEmpty());
+        boolean hasSeller = seller != null && !seller.isEmpty();
+        boolean hasFilters = (category != null && !category.isEmpty()) || minPrice != null || maxPrice != null || (condition != null && !condition.isEmpty()) || hasSeller;
         boolean hasSort = sortBy != null && !sortBy.isEmpty();
 
-        if (!hasFilters && !hasSort) {
+        if (hasSeller && !hasFilters) {
+            allProducts = productService.getSellerActiveProducts(seller);
+        } else if (hasSeller) {
+            allProducts = productService.getSellerActiveProducts(seller);
+            // 卖家筛选后再做价格/成色/排序
+            if (minPrice != null) {
+                allProducts = allProducts.stream().filter(p -> p.getSecondHandPrice() != null && p.getSecondHandPrice().compareTo(minPrice) >= 0).toList();
+            }
+            if (maxPrice != null) {
+                allProducts = allProducts.stream().filter(p -> p.getSecondHandPrice() != null && p.getSecondHandPrice().compareTo(maxPrice) <= 0).toList();
+            }
+            if (condition != null && !condition.isEmpty()) {
+                String cond = condition;
+                allProducts = allProducts.stream().filter(p -> cond.equals(p.getItemCondition())).toList();
+            }
+            if (category != null && !category.isEmpty()) {
+                String cat = category;
+                allProducts = allProducts.stream().filter(p -> cat.equals(p.getCategory())).toList();
+            }
+        } else if (!hasFilters && !hasSort) {
             allProducts = productService.getActiveProducts();
         } else {
             allProducts = productService.getFilteredProducts(category, minPrice, maxPrice, condition, sortBy);
+        }
+
+        if (hasSeller && hasSort) {
+            final String sort = sortBy;
+            allProducts = new java.util.ArrayList<>(allProducts);
+            if ("price-asc".equals(sort)) {
+                allProducts.sort(java.util.Comparator.comparing(Product::getSecondHandPrice));
+            } else if ("price-desc".equals(sort)) {
+                allProducts.sort(java.util.Comparator.comparing(Product::getSecondHandPrice).reversed());
+            } else if ("sales".equals(sort) || "sales-desc".equals(sort)) {
+                // 销量排序由前端列表场景使用；卖家店内按上架时间即可
+                allProducts.sort(java.util.Comparator.comparing(Product::getCreatedAt).reversed());
+            } else {
+                allProducts.sort(java.util.Comparator.comparing(Product::getCreatedAt).reversed());
+            }
         }
 
         // 手动分页
