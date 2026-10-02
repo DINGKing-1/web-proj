@@ -5,6 +5,7 @@ import { userApi, productApi, uploadApi } from '@/api'
 import { formatPrice, formatTime, firstImage, CATEGORIES } from '@/api/client'
 import { showToast, confirmDialog } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
+import AppModal from '@/components/AppModal.vue'
 
 const router = useRouter()
 const store = useUserStore()
@@ -522,9 +523,12 @@ onMounted(load)
           </div>
         </section>
       </div>
-      <div v-if="addrEditing" class="modal-backdrop" @click.self="addrEditing = null">
-        <div class="modal card">
-          <h2 class="h2 mb-3">{{ addrEditing === 'new' ? '新增地址' : '编辑地址' }}</h2>
+      <AppModal
+        :show="!!addrEditing"
+        :title="addrEditing === 'new' ? '新增地址' : '编辑地址'"
+        width="560px"
+        @close="addrEditing = null"
+      >
           <div class="row">
             <div class="form-group">
               <label>收货人</label>
@@ -559,18 +563,20 @@ onMounted(load)
             <input v-model="addrForm.isDefault" type="checkbox" />
             设为默认地址
           </label>
-          <div class="modal-actions">
-            <button class="btn btn-outline" @click="addrEditing = null">取消</button>
-            <button class="btn btn-primary" :disabled="savingAddr" @click="saveAddress">
-              {{ savingAddr ? '保存中…' : '保存' }}
-            </button>
-          </div>
-        </div>
-      </div>
+        <template #actions>
+          <button class="btn btn-outline" @click="addrEditing = null">取消</button>
+          <button class="btn btn-primary" :disabled="savingAddr" @click="saveAddress">
+            {{ savingAddr ? '保存中…' : '保存' }}
+          </button>
+        </template>
+      </AppModal>
 
-      <div v-if="editing" class="modal-backdrop" @click.self="editing = null">
-        <div class="modal card">
-          <h2 class="h2 mb-3">编辑商品</h2>
+      <AppModal
+        :show="!!editing"
+        title="编辑商品"
+        width="560px"
+        @close="editing = null"
+      >
           <div class="form-group">
             <label>商品名称</label>
             <input v-model="editForm.name" class="form-input" />
@@ -607,14 +613,13 @@ onMounted(load)
             <label>描述</label>
             <textarea v-model="editForm.description" class="form-input" rows="3"></textarea>
           </div>
-          <div class="modal-actions">
-            <button class="btn btn-outline" @click="editing = null">取消</button>
-            <button class="btn btn-primary" :disabled="savingEdit" @click="saveEdit">
-              {{ savingEdit ? '保存中…' : '保存' }}
-            </button>
-          </div>
-        </div>
-      </div>
+        <template #actions>
+          <button class="btn btn-outline" @click="editing = null">取消</button>
+          <button class="btn btn-primary" :disabled="savingEdit" @click="saveEdit">
+            {{ savingEdit ? '保存中…' : '保存' }}
+          </button>
+        </template>
+      </AppModal>
     </div>
   </main>
 </template>
@@ -810,22 +815,7 @@ onMounted(load)
 .chip.off {
   background: var(--ink-soft);
 }
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(17, 24, 39, 0.45);
-  display: grid;
-  place-items: center;
-  z-index: var(--z-modal-backdrop, 400);
-  padding: 20px;
-}
-.modal {
-  width: min(100%, 520px);
-  max-height: 90vh;
-  overflow: auto;
-  padding: 24px;
-  z-index: var(--z-modal, 500);
-}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

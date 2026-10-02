@@ -79,7 +79,35 @@
 }
 
 .el-message-box {
-  --el-messagebox-border-radius: 16px;
+  --el-messagebox-border-radius: 18px;
+  --el-messagebox-title-color: var(--ink);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  padding: 22px 24px 18px;
+}
+.el-message-box__header {
+  padding-bottom: 10px;
+}
+.el-message-box__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.el-message-box__content {
+  color: var(--ink-soft);
+  padding: 8px 0 4px;
+}
+.el-message-box__btns .el-button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.el-message-box__btns .el-button--primary:hover {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+}
+.el-overlay {
+  background: rgba(44, 34, 27, 0.42);
+  backdrop-filter: blur(6px);
 }
 
 .el-input__wrapper,

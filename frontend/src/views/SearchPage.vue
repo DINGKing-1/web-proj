@@ -5,6 +5,7 @@ import { productApi } from '@/api'
 import ProductCard from '@/components/ProductCard.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import FilterBar from '@/components/FilterBar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,7 +21,6 @@ const sortBy = ref('newest')
 const minPrice = ref('')
 const maxPrice = ref('')
 const condition = ref('')
-const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
 
 async function load(p = 0) {
   const q = (route.query.q || '').trim()
@@ -94,48 +94,27 @@ onMounted(() => load(0))
       </div>
 
       <template v-if="query">
-        <el-card shadow="never" class="filter-panel">
-          <el-form inline>
-            <el-form-item label="排序">
-              <el-select v-model="sortBy" style="width: 150px">
-                <el-option label="最新发布" value="newest" />
-                <el-option label="价格从低到高" value="price-asc" />
-                <el-option label="价格从高到低" value="price-desc" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="最低价">
-              <el-input v-model="minPrice" type="number" placeholder="不限" style="width: 110px" />
-            </el-form-item>
-            <el-form-item label="最高价">
-              <el-input v-model="maxPrice" type="number" placeholder="不限" style="width: 110px" />
-            </el-form-item>
-            <el-form-item label="成色">
-              <el-select v-model="condition" style="width: 140px">
-                <el-option label="不限" value="" />
-                <el-option v-for="c in CONDITIONS" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" @click="applyFilters">筛选</el-button>
-              <el-button @click="resetFilters">重置</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
+        <FilterBar
+          v-model:sort-by="sortBy"
+          v-model:min-price="minPrice"
+          v-model:max-price="maxPrice"
+          v-model:condition="condition"
+          @apply="applyFilters"
+          @reset="resetFilters"
+        />
 
         <div v-if="loading" class="grid">
-          <el-skeleton v-for="i in 8" :key="i" animated>
-            <template #template>
-              <el-skeleton-item variant="image" style="width: 100%; height: 180px" />
-              <div style="padding: 12px">
-                <el-skeleton-item variant="h3" style="width: 70%" />
-                <el-skeleton-item variant="text" style="width: 40%" />
-              </div>
-            </template>
-          </el-skeleton>
+          <div v-for="i in 8" :key="i" class="card skeleton-card">
+            <div class="skeleton-img"></div>
+            <div class="skeleton-line w70"></div>
+            <div class="skeleton-line w40"></div>
+          </div>
         </div>
-        <el-empty
+        <EmptyState
           v-else-if="!products.length"
-          :description="`没有找到与「${query}」相关的商品`"
+          icon="fa-magnifying-glass"
+          title="没有找到相关商品"
+          :desc="`没有与「${query}」匹配的商品，试试别的条件`"
         />
         <div v-else class="grid">
           <ProductCard v-for="p in products" :key="p.id" :product="p" />
@@ -167,40 +146,50 @@ onMounted(() => load(0))
   gap: 8px;
   min-width: min(100%, 340px);
 }
-.filter-panel {
-  margin-bottom: 22px;
-}
-.filter-row {
-  display: flex;
-  gap: 14px;
-  align-items: end;
-  flex-wrap: wrap;
-}
-.field {
-  min-width: 140px;
-}
-.field label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.actions {
-  display: flex;
-  gap: 8px;
-}
 .grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 18px;
+}
+.skeleton-card {
+  overflow: hidden;
+  padding: 0;
+}
+.skeleton-img {
+  aspect-ratio: 1 / 0.92;
+  background: linear-gradient(90deg, #f3e7d9 25%, #faf0e4 50%, #f3e7d9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite linear;
+}
+.skeleton-line {
+  height: 12px;
+  margin: 12px 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f3e7d9 25%, #faf0e4 50%, #f3e7d9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite linear;
+}
+.skeleton-line.w70 {
+  width: 70%;
+}
+.skeleton-line.w40 {
+  width: 40%;
+  margin-bottom: 18px;
+}
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 @media (max-width: 1024px) {
   .grid {
     grid-template-columns: repeat(3, 1fr);
   }
 }
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
