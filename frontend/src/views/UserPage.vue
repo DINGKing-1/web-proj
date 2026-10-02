@@ -578,13 +578,13 @@ onMounted(load)
           <div class="row">
             <div class="form-group">
               <label>分类</label>
-              <select v-model="editForm.category" class="form-input">
+              <select v-model="editForm.category" class="form-select">
                 <option v-for="c in CATEGORIES.filter((x) => x !== '全部')" :key="c" :value="c">{{ c }}</option>
               </select>
             </div>
             <div class="form-group">
               <label>成色</label>
-              <select v-model="editForm.condition" class="form-input">
+              <select v-model="editForm.condition" class="form-select">
                 <option v-for="c in CONDITIONS" :key="c" :value="c">{{ c }}</option>
               </select>
             </div>

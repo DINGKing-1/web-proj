@@ -20,7 +20,7 @@ const sortBy = ref('newest')
 const minPrice = ref('')
 const maxPrice = ref('')
 const condition = ref('')
-const CONDITIONS = ['', '全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
+const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
 
 async function load(p = 0) {
   const q = (route.query.q || '').trim()
@@ -94,38 +94,45 @@ onMounted(() => load(0))
       </div>
 
       <template v-if="query">
-        <div class="filter-panel card card-pad">
-          <div class="filter-row">
-            <div class="field">
-              <label>排序</label>
-              <select v-model="sortBy" class="form-select">
-                <option value="newest">最新发布</option>
-                <option value="price-asc">价格从低到高</option>
-                <option value="price-desc">价格从高到低</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>最低价</label>
-              <input v-model="minPrice" type="number" min="0" step="0.01" class="form-input" placeholder="不限" />
-            </div>
-            <div class="field">
-              <label>最高价</label>
-              <input v-model="maxPrice" type="number" min="0" step="0.01" class="form-input" placeholder="不限" />
-            </div>
-            <div class="field">
-              <label>成色</label>
-              <select v-model="condition" class="form-select">
-                <option v-for="c in CONDITIONS" :key="c" :value="c">{{ c || '不限' }}</option>
-              </select>
-            </div>
-            <div class="actions">
-              <button class="btn btn-primary" type="button" @click="applyFilters">筛选</button>
-              <button class="btn btn-outline" type="button" @click="resetFilters">重置</button>
-            </div>
-          </div>
-        </div>
+        <el-card shadow="never" class="filter-panel">
+          <el-form inline>
+            <el-form-item label="排序">
+              <el-select v-model="sortBy" style="width: 150px">
+                <el-option label="最新发布" value="newest" />
+                <el-option label="价格从低到高" value="price-asc" />
+                <el-option label="价格从高到低" value="price-desc" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="最低价">
+              <el-input v-model="minPrice" type="number" placeholder="不限" style="width: 110px" />
+            </el-form-item>
+            <el-form-item label="最高价">
+              <el-input v-model="maxPrice" type="number" placeholder="不限" style="width: 110px" />
+            </el-form-item>
+            <el-form-item label="成色">
+              <el-select v-model="condition" style="width: 140px">
+                <el-option label="不限" value="" />
+                <el-option v-for="c in CONDITIONS" :key="c" :label="c" :value="c" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="applyFilters">筛选</el-button>
+              <el-button @click="resetFilters">重置</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
 
-        <div v-if="loading" class="loading"><div class="spinner"></div>加载中…</div>
+        <div v-if="loading" class="grid">
+          <el-skeleton v-for="i in 8" :key="i" animated>
+            <template #template>
+              <el-skeleton-item variant="image" style="width: 100%; height: 180px" />
+              <div style="padding: 12px">
+                <el-skeleton-item variant="h3" style="width: 70%" />
+                <el-skeleton-item variant="text" style="width: 40%" />
+              </div>
+            </template>
+          </el-skeleton>
+        </div>
         <el-empty
           v-else-if="!products.length"
           :description="`没有找到与「${query}」相关的商品`"
