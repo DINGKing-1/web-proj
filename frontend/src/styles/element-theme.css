@@ -1,0 +1,111 @@
+/* ========================================
+   Element Plus 主题定制（暖金奶油）
+   覆盖 CSS 变量，与 main.css 设计 token 对齐
+   ======================================== */
+
+:root {
+  /* Brand */
+  --el-color-primary: #d4883c;
+  --el-color-primary-light-3: #e0a66a;
+  --el-color-primary-light-5: #ebc295;
+  --el-color-primary-light-7: #f2d8b8;
+  --el-color-primary-light-8: #f6e4cc;
+  --el-color-primary-light-9: #faf0e2;
+  --el-color-primary-dark-2: #b86f28;
+
+  --el-color-success: #2f9e62;
+  --el-color-warning: #d4a017;
+  --el-color-danger: #d64545;
+  --el-color-error: #d64545;
+  --el-color-info: #8a7a6b;
+
+  /* Text */
+  --el-text-color-primary: #2c221b;
+  --el-text-color-regular: #5c4d40;
+  --el-text-color-secondary: #8a7a6b;
+  --el-text-color-placeholder: #b0a090;
+  --el-text-color-disabled: #c9bdb0;
+
+  /* Fill / Border / BG */
+  --el-fill-color-blank: #ffffff;
+  --el-fill-color-light: #fff8f1;
+  --el-fill-color-lighter: #fffaf5;
+  --el-fill-color-extra-light: #fffcf8;
+  --el-fill-color-dark: #f2ebe3;
+  --el-border-color: #e0d0bc;
+  --el-border-color-light: #ede2d4;
+  --el-border-color-lighter: #f2ebe3;
+  --el-border-color-extra-light: #f7f1ea;
+  --el-border-color-dark: #d4c2ab;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+
+  /* Box */
+  --el-box-shadow: 0 6px 24px rgba(120, 70, 25, 0.08);
+  --el-box-shadow-light: 0 4px 16px rgba(120, 70, 25, 0.06);
+  --el-box-shadow-lighter: 0 2px 8px rgba(120, 70, 25, 0.05);
+  --el-box-shadow-dark: 0 16px 48px rgba(120, 70, 25, 0.12);
+
+  --el-font-family: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --el-font-size-base: 14px;
+}
+
+/* Button 圆角更贴合本站 */
+.el-button {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.el-button--primary {
+  box-shadow: 0 6px 16px rgba(212, 136, 60, 0.22);
+}
+
+.el-card {
+  --el-card-border-color: var(--border);
+  --el-card-border-radius: 16px;
+  --el-card-padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.el-table {
+  --el-table-border-color: var(--border);
+  --el-table-header-bg-color: var(--surface-warm);
+  --el-table-row-hover-bg-color: var(--accent-soft);
+}
+
+.el-dialog {
+  --el-dialog-border-radius: 18px;
+}
+
+.el-message-box {
+  --el-messagebox-border-radius: 16px;
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  box-shadow: 0 0 0 1px var(--border-strong) inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 3px rgba(212, 136, 60, 0.15);
+}
+
+.el-form-item__label {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.el-tabs__item.is-active {
+  color: var(--accent-deep);
+}
+
+.el-tabs__active-bar {
+  background-color: var(--accent);
+}
+
+.el-pagination {
+  --el-pagination-button-bg-color: var(--surface);
+  --el-pagination-hover-color: var(--accent-deep);
+}

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>确认订单 - 优品汇</title>
+    <link rel="stylesheet" href="/css/style.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .checkout-page { min-height: 100vh; background: linear-gradient(135deg, #faf8f4, #f0e8d5); }
+        .checkout-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .checkout-card { background: rgba(255,255,255,0.85); backdrop-filter: blur(16px); border: 1px solid rgba(0,0,0,0.06); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+        .checkout-card-title { font-size: 15px; font-weight: 600; color: var(--color-text); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .checkout-card-title i { color: var(--color-accent-dark); }
+        .checkout-item { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(0,0,0,0.04); }
+        .checkout-item:last-child { border-bottom: none; }
+        .checkout-item-img { width: 70px; height: 70px; border-radius: 12px; object-fit: cover; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .checkout-item-info { flex: 1; min-width: 0; }
+        .checkout-item-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .checkout-item-cat { font-size: 12px; color: var(--color-text-light); }
+        .checkout-item-price { font-size: 18px; font-weight: 700; color: var(--color-accent-dark); text-align: right; white-space: nowrap; }
+        .checkout-summary { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-top: 1px solid rgba(0,0,0,0.06); margin-top: 12px; }
+        .checkout-summary-label { font-size: 14px; color: var(--color-text-secondary); }
+        .checkout-summary-value { font-size: 14px; font-weight: 600; }
+        .checkout-total { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-top: 2px solid rgba(184,134,11,0.2); margin-top: 12px; }
+        .checkout-total-label { font-size: 18px; font-weight: 600; }
+        .checkout-total-value { font-size: 28px; font-weight: 700; color: var(--color-accent-dark); font-family: var(--font-display); }
+        .address-card { padding: 14px; border: 2px solid rgba(0,0,0,0.06); border-radius: 12px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
+        .address-card:hover { border-color: rgba(184,134,11,0.3); }
+        .address-card.selected { border-color: var(--color-accent); background: rgba(184,134,11,0.05); }
+        .address-card .default-badge { display: inline-block; padding: 2px 8px; background: rgba(184,134,11,0.1); color: var(--color-accent-dark); font-size: 11px; font-weight: 600; border-radius: 4px; margin-bottom: 6px; }
+        .checkout-btn { width: 100%; padding: 16px; font-size: 18px; font-weight: 700; border-radius: 14px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">跳到主要内容</a>
+    <div class="checkout-page">
+        <header class="header"><nav class="nav-container"><div class="logo"><a href="/"><div class="logo-icon"><i class="fas fa-gem"></i></div><span class="logo-text">优品汇</span></a></div><div class="search-bar"><form action="/search" method="GET"><input type="text" name="q" placeholder="搜索优质二手商品..." class="search-input"><button type="submit" class="search-btn" aria-label="搜索"><i class="fas fa-search"></i></button></form></div><div class="nav-actions"><th:block th:if="${isLoggedIn}"><a href="/cart" class="btn btn-ghost" aria-label="购物车" style="position:relative;"><i class="fas fa-shopping-cart"></i><span class="cart-count-badge" style="display:none">0</span></a> <a href="/upload" class="btn btn-outline"><i class="fas fa-plus"></i> 发布</a> <div class="user-dropdown" style="position:relative;"><button class="btn btn-ghost user-menu-btn" style="gap:8px;"><img src="/user-avatar/default.jpg" style="width:30px;height:30px;border-radius:50%;object-fit:cover;" onerror="this.src='/user-avatar/default.jpg'"><span style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" th:text="${sessionNickname != null ? sessionNickname : sessionUsername}">用户</span><i class="fas fa-chevron-down" style="font-size:10px;"></i></button></div></th:block><th:block th:unless="${isLoggedIn}"><a href="/login" class="btn btn-outline">登录</a><a href="/login" class="btn btn-accent">注册</a></th:block></div></nav></header>
+        <section class="category-bar"><div class="category-container"><a href="/category/全部" class="category-item">全部</a><a href="/category/手机" class="category-item">手机</a><a href="/category/笔记本电脑" class="category-item">笔记本电脑</a><a href="/category/耳机" class="category-item">耳机</a><a href="/category/相机" class="category-item">相机</a><a href="/category/手机壳" class="category-item">手机壳</a><a href="/category/空调" class="category-item">空调</a><a href="/category/冰箱" class="category-item">冰箱</a><a href="/category/半身裙" class="category-item">半身裙</a><a href="/category/其他" class="category-item">其他</a></div></section>
+        <main class="main-content" id="main-content">
+            <div class="checkout-container">
+                <div class="page-header" style="margin-bottom:20px;"><h1><i class="fas fa-shopping-bag"></i> 确认订单</h1></div>
+
+                <!-- 商品列表 -->
+                <div class="checkout-card">
+                    <div class="checkout-card-title"><i class="fas fa-box-open"></i> 商品清单</div>
+                    <div id="productList"><p style="color:var(--color-text-light);text-align:center;padding:20px;">加载中...</p></div>
+                </div>
+
+                <!-- 收货地址 -->
+                <div class="checkout-card">
+                    <div class="checkout-card-title"><i class="fas fa-map-marker-alt"></i> 收货地址</div>
+                    <div id="addressList"><p style="color:var(--color-text-light);">加载中...</p></div>
+                    <button class="btn btn-outline btn-sm" onclick="showAddAddress()" style="margin-top:12px;"><i class="fas fa-plus"></i> 新增地址</button>
+                </div>
+
+                <!-- 订单确认 -->
+                <div class="checkout-card">
+                    <div class="checkout-card-title"><i class="fas fa-receipt"></i> 订单确认</div>
+                    <div class="checkout-summary">
+                        <span class="checkout-summary-label">支付方式</span>
+                        <span class="checkout-summary-value" style="color:var(--color-accent-dark);">余额支付</span>
+                    </div>
+                    <div class="checkout-summary">
+                        <span class="checkout-summary-label">当前余额</span>
+                        <span class="checkout-summary-value" id="currentBalance">¥--</span>
+                    </div>
+                    <div class="checkout-summary">
+                        <span class="checkout-summary-label">商品数量</span>
+                        <span class="checkout-summary-value" id="itemCount">0 件</span>
+                    </div>
+                    <div class="checkout-total">
+                        <span class="checkout-total-label">应付金额</span>
+                        <span class="checkout-total-value" id="totalPrice">¥0</span>
+                    </div>
+                    <button class="btn btn-accent checkout-btn ripple" onclick="submitOrders()"><i class="fas fa-lock"></i> 确认支付</button>
+                </div>
+            </div>
+        </main>
+        <footer class="footer"><div class="footer-container"><div class="footer-section"><h4>优品汇</h4><p>致力于打造高端二手交易平台。</p></div></div><div class="footer-bottom"><p>&copy; 2026 优品汇 All Rights Reserved</p></div></footer>
+    </div>
+    <script src="/js/main.js"></script>
+    <script>
+    var checkoutItems = []; // 要购买的商品列表
+    var selectedAddress = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var user = App.getUser();
+        if (!user) { window.location.href = '/login'; return; }
+
+        var pid = sessionStorage.getItem('checkoutProductId');
+        if (pid) {
+            // 直接购买单个商品
+            App.api('/api/products/' + pid).then(function(d) {
+                if (d.success && d.product) {
+                    checkoutItems = [{ product: d.product, quantity: 1 }];
+                    renderProducts();
+                } else {
+                    document.getElementById('productList').innerHTML = '<p style="color:var(--color-error);text-align:center;">商品不存在</p>';
+                }
+            });
+        } else {
+            // 从购物车购买
+            App.api('/api/cart').then(function(d) {
+                if (d.success && d.items && d.items.length > 0) {
+                    var loadCount = 0;
+                    checkoutItems = [];
+                    d.items.forEach(function(item) {
+                        App.api('/api/products/' + item.productId).then(function(d2) {
+                            if (d2.success && d2.product) {
+                                checkoutItems.push({ product: d2.product, quantity: 1, cartItemId: item.id });
+                            }
+                            loadCount++;
+                            if (loadCount === d.items.length) {
+                                renderProducts();
+                            }
+                        });
+                    });
+                } else {
+                    document.getElementById('productList').innerHTML = '<p style="color:var(--color-text-light);text-align:center;">没有待结算的商品</p>';
+                }
+            });
+        }
+        loadAddresses();
+        loadBalance();
+    });
+
+    function renderProducts() {
+        if (checkoutItems.length === 0) {
+            document.getElementById('productList').innerHTML = '<p style="color:var(--color-text-light);text-align:center;">没有待结算的商品</p>';
+            return;
+        }
+        var html = '';
+        var total = 0;
+        checkoutItems.forEach(function(item, index) {
+            var p = item.product;
+            var price = p.secondHandPrice || 0;
+            var qty = item.quantity || 1;
+            total += price * qty;
+            var img = p.imageUrl || '';
+            if (img.indexOf(',') > -1) img = img.split(',')[0].trim();
+            html += '<div class="checkout-item">' +
+                '<img class="checkout-item-img" src="' + (img || '/user-avatar/default.jpg') + '" onerror="this.src=\'/user-avatar/default.jpg\'">' +
+                '<div class="checkout-item-info">' +
+                    '<div class="checkout-item-name">' + (p.name || '未知商品') + '</div>' +
+                    '<div class="checkout-item-cat">' + (p.category || '') + ' × ' + qty + '</div>' +
+                '</div>' +
+                '<div class="checkout-item-price">¥' + Number(price * qty).toLocaleString() + '</div>' +
+            '</div>';
+        });
+        document.getElementById('productList').innerHTML = html;
+        document.getElementById('totalPrice').textContent = '¥' + total.toLocaleString();
+        document.getElementById('itemCount').textContent = checkoutItems.length + ' 件';
+    }
+
+    function loadAddresses() {
+        App.api('/api/addresses').then(function(data) {
+            if (!data.success || data.addresses.length === 0) {
+                document.getElementById('addressList').innerHTML = '<p style="color:var(--color-text-light);">暂无收货地址，请添加</p>';
+                return;
+            }
+            var html = '';
+            data.addresses.forEach(function(a) {
+                html += '<div class="address-card' + (a.isDefault ? ' selected' : '') + '" onclick="selectAddress(this)" data-address=\'' + JSON.stringify(a) + '\'>' +
+                    (a.isDefault ? '<span class="default-badge">默认</span>' : '') +
+                    '<div style="font-weight:600;margin-bottom:4px;">' + a.receiverName + ' ' + a.phone + '</div>' +
+                    '<div style="font-size:13px;color:var(--color-text-secondary);">' + (a.province||'') + (a.city||'') + (a.district||'') + ' ' + (a.detail||'') + '</div></div>';
+            });
+            document.getElementById('addressList').innerHTML = html;
+            var def = data.addresses.find(function(a) { return a.isDefault; });
+            if (def) selectedAddress = def;
+            else selectedAddress = data.addresses[0];
+        });
+    }
+
+    function selectAddress(el) {
+        document.querySelectorAll('.address-card').forEach(function(c) { c.classList.remove('selected'); });
+        el.classList.add('selected');
+        selectedAddress = JSON.parse(el.dataset.address);
+    }
+
+    function loadBalance() {
+        App.api('/api/user').then(function(d) { if (d.success) { document.getElementById('currentBalance').textContent = '¥' + Number(d.balance || 0).toLocaleString(); } });
+    }
+
+    function showAddAddress() {
+        var overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = '<div class="modal-box" style="text-align:left;max-width:480px;">' +
+            '<h3 style="text-align:center;margin-bottom:20px;">新增收货地址</h3>' +
+            '<div class="modal-form-group"><label>收货人姓名 *</label><input type="text" id="addrName" class="form-input" placeholder="请输入姓名"></div>' +
+            '<div class="modal-form-group"><label>手机号 *</label><input type="tel" id="addrPhone" class="form-input" placeholder="请输入手机号"></div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">' +
+                '<div class="modal-form-group"><label>省份</label><input type="text" id="addrProvince" class="form-input" placeholder="省"></div>' +
+                '<div class="modal-form-group"><label>城市</label><input type="text" id="addrCity" class="form-input" placeholder="市"></div>' +
+                '<div class="modal-form-group"><label>区县</label><input type="text" id="addrDistrict" class="form-input" placeholder="区"></div>' +
+            '</div>' +
+            '<div class="modal-form-group"><label>详细地址 *</label><input type="text" id="addrDetail" class="form-input" placeholder="街道、门牌号等"></div>' +
+            '<div class="modal-actions" style="margin-top:20px;">' +
+                '<button class="btn btn-outline modal-cancel-btn">取消</button>' +
+                '<button class="btn btn-accent modal-save-btn">保存地址</button>' +
+            '</div></div>';
+        document.body.appendChild(overlay);
+        var close = function() { overlay.style.opacity = '0'; overlay.style.transition = 'opacity 0.2s'; setTimeout(function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 200); };
+        overlay.querySelector('.modal-cancel-btn').addEventListener('click', close);
+        overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+        overlay.querySelector('.modal-save-btn').addEventListener('click', function() {
+            var name = document.getElementById('addrName').value.trim();
+            var phone = document.getElementById('addrPhone').value.trim();
+            var detail = document.getElementById('addrDetail').value.trim();
+            if (!name || !phone || !detail) { App.toast('请填写必填项', 'warning'); return; }
+            App.api('/api/addresses', { method: 'POST', body: {
+                receiverName: name, phone: phone,
+                province: document.getElementById('addrProvince').value.trim(),
+                city: document.getElementById('addrCity').value.trim(),
+                district: document.getElementById('addrDistrict').value.trim(),
+                detail: detail, isDefault: false
+            }}).then(function(d) {
+                if (d.success) { App.toast('地址添加成功', 'success'); close(); loadAddresses(); }
+                else { App.toast(d.message, 'error'); }
+            });
+        });
+    }
+
+    function submitOrders() {
+        if (checkoutItems.length === 0) { App.toast('没有商品', 'warning'); return; }
+        if (!selectedAddress) { App.toast('请选择收货地址', 'warning'); return; }
+
+        var total = 0;
+        checkoutItems.forEach(function(item) {
+            total += (item.product.secondHandPrice || 0) * (item.quantity || 1);
+        });
+
+        App.modal({
+            title: '确认支付', message: '共 ' + checkoutItems.length + ' 件商品，合计 ¥' + total.toLocaleString() + '，确认支付？', type: 'info',
+            okText: '确认支付', cancelText: '取消',
+            onOk: function() {
+                var orderCount = 0;
+                var successCount = 0;
+                var failCount = 0;
+                var addressStr = (selectedAddress.province||'') + (selectedAddress.city||'') + (selectedAddress.district||'') + ' ' + (selectedAddress.detail||'');
+
+                checkoutItems.forEach(function(item) {
+                    var p = item.product;
+                    var img = p.imageUrl || '';
+                    if (img.indexOf(',') > -1) img = img.split(',')[0].trim();
+
+                    App.api('/api/orders', { method: 'POST', body: {
+                        productId: p.id, productName: p.name, productPrice: p.secondHandPrice,
+                        category: p.category || '', imageUrl: img, quantity: item.quantity || 1,
+                        receiverName: selectedAddress.receiverName, receiverPhone: selectedAddress.phone,
+                        receiverAddress: addressStr,
+                        paymentMethod: 'balance'
+                    }}).then(function(data) {
+                        orderCount++;
+                        if (data.success) {
+                            successCount++;
+                            if (item.cartItemId) {
+                                App.api('/api/cart/' + item.cartItemId, { method: 'DELETE' });
+                            }
+                        } else {
+                            failCount++;
+                        }
+
+                        if (orderCount === checkoutItems.length) {
+                            sessionStorage.removeItem('checkoutProductId');
+                            if (failCount === 0) {
+                                App.toast('全部购买成功！', 'success');
+                            } else {
+                                App.toast(successCount + ' 件成功，' + failCount + ' 件失败', 'warning');
+                            }
+                            App.updateSideNavBadge();
+                            setTimeout(function() { window.location.href = '/my-orders'; }, 1000);
+                        }
+                    }).catch(function() {
+                        orderCount++;
+                        failCount++;
+                        if (orderCount === checkoutItems.length) {
+                            App.toast(successCount + ' 件成功，' + failCount + ' 件失败', 'warning');
+                            setTimeout(function() { window.location.href = '/my-orders'; }, 1000);
+                        }
+                    });
+                });
+            }
+        });
+    }
+    </script>
+</body>
+</html>

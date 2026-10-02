@@ -1,0 +1,13 @@
+package com.secondhand.mall.repository;
+
+import com.secondhand.mall.entity.Address;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface AddressRepository extends JpaRepository<Address, Long> {
+    List<Address> findByUsernameOrderByIsDefaultDescCreatedAtDesc(String username);
+    void deleteByUsername(String username);
+}

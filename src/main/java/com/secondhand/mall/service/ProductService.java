@@ -4,9 +4,14 @@ import com.secondhand.mall.entity.Product;
 import com.secondhand.mall.entity.User;
 import com.secondhand.mall.repository.ProductRepository;
 import com.secondhand.mall.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -23,12 +28,15 @@ public class ProductService {
     }
 
     private void fillSellerAvatar(Product product) {
-        if (product.getSellerAvatar() == null || product.getSellerAvatar().isEmpty()) {
-            if (product.getSellerUsername() != null && !product.getSellerUsername().isEmpty()) {
-                userRepository.findByUsername(product.getSellerUsername()).ifPresent(user -> {
-                    product.setSellerAvatar(user.getAvatar());
-                });
-            }
+        // 每次都从用户表获取最新头像，确保头像跟随用户变化
+        if (product.getSellerUsername() != null && !product.getSellerUsername().isEmpty()) {
+            userRepository.findByUsername(product.getSellerUsername()).ifPresent(user -> {
+                product.setSellerAvatar(user.getAvatar());
+                // 同时更新卖家昵称，确保跟随用户变化
+                if (user.getNickname() != null && !user.getNickname().isEmpty()) {
+                    product.setSellerName(user.getNickname());
+                }
+            });
         }
     }
 
@@ -56,6 +64,19 @@ public class ProductService {
         List<Product> products = productRepository.findByStatus("active");
         fillSellerAvatars(products);
         return products;
+    }
+
+    public List<Product> getRandomActiveProducts(int count) {
+        List<Product> allProducts = productRepository.findByStatus("active");
+        if (allProducts.size() <= count) {
+            fillSellerAvatars(allProducts);
+            return allProducts;
+        }
+        // 随机打乱后取前count个
+        Collections.shuffle(allProducts);
+        List<Product> randomProducts = allProducts.subList(0, count);
+        fillSellerAvatars(randomProducts);
+        return randomProducts;
     }
 
     public List<Product> getProductsByCategory(String category) {
@@ -88,6 +109,16 @@ public class ProductService {
         if (updates.getImageUrl() != null) product.setImageUrl(updates.getImageUrl());
         if (updates.getQuantity() != null) product.setQuantity(updates.getQuantity());
 
+        if (product.getOriginalPrice().compareTo(BigDecimal.ZERO) <= 0 || product.getSecondHandPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("价格必须大于0");
+        }
+        if (product.getSecondHandPrice().compareTo(product.getOriginalPrice()) > 0) {
+            throw new RuntimeException("二手价不能高于原价");
+        }
+        if (product.getQuantity() != null && product.getQuantity() < 0) {
+            throw new RuntimeException("库存不能为负数");
+        }
+
         return productRepository.save(product);
     }
 
@@ -99,6 +130,25 @@ public class ProductService {
             throw new RuntimeException("无权删除此商品");
         }
 
+        product.setStatus("deleted");
+        productRepository.save(product);
+    }
+
+    /**
+     * 获取所有商品（含已售出），供 admin 使用
+     */
+    public List<Product> getAllProducts() {
+        List<Product> products = productRepository.findAll();
+        fillSellerAvatars(products);
+        return products;
+    }
+
+    /**
+     * 管理员直接删除商品，无需校验卖家
+     */
+    public void adminDeleteProduct(Long id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("商品不存在"));
         productRepository.delete(product);
     }
 
@@ -116,7 +166,7 @@ public class ProductService {
     }
 
     public List<Product> searchProducts(String keyword) {
-        List<Product> products = productRepository.findByNameContaining(keyword);
+        List<Product> products = productRepository.searchActiveByName(keyword);
         fillSellerAvatars(products);
         return products;
     }
@@ -137,9 +187,34 @@ public class ProductService {
         boolean hasCategory = category != null && !category.isEmpty();
         boolean hasPriceRange = minPrice != null || maxPrice != null;
         boolean hasCondition = condition != null && !condition.isEmpty();
+        boolean hasFilters = hasCategory || hasPriceRange || hasCondition;
 
-        double min = minPrice != null ? minPrice : 0;
-        double max = maxPrice != null ? maxPrice : Double.MAX_VALUE;
+        // 如果没有筛选条件，使用数据库排序
+        if (!hasFilters) {
+            List<Product> products;
+            if (sortBy != null) {
+                switch (sortBy) {
+                    case "price-asc":
+                        products = productRepository.findAllActiveOrderByPriceAsc();
+                        break;
+                    case "price-desc":
+                        products = productRepository.findAllActiveOrderByPriceDesc();
+                        break;
+                    case "newest":
+                    default:
+                        products = productRepository.findAllActiveOrderByNewest();
+                        break;
+                }
+            } else {
+                products = productRepository.findAllActiveOrderByNewest();
+            }
+            fillSellerAvatars(products);
+            return products;
+        }
+
+        // 有筛选条件时，使用内存排序
+        BigDecimal min = minPrice != null ? BigDecimal.valueOf(minPrice) : BigDecimal.ZERO;
+        BigDecimal max = maxPrice != null ? BigDecimal.valueOf(maxPrice) : new BigDecimal("99999999.99");
 
         List<Product> products;
 
@@ -155,10 +230,8 @@ public class ProductService {
             products = productRepository.findByStatusAndCategoryOrderByCreatedAtDesc("active", category);
         } else if (hasPriceRange) {
             products = productRepository.findByPriceRange("active", min, max);
-        } else if (hasCondition) {
-            products = productRepository.findByCondition("active", condition);
         } else {
-            products = productRepository.findByStatus("active");
+            products = productRepository.findByCondition("active", condition);
         }
 
         if (sortBy != null) {
@@ -181,5 +254,22 @@ public class ProductService {
 
         fillSellerAvatars(products);
         return products;
+    }
+
+    public Page<Product> getProducts(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        return productRepository.findAllActive(pageable);
+    }
+
+    public List<Product> getLatestActiveProducts(int count) {
+        Pageable pageable = PageRequest.of(0, count, Sort.by("createdAt").descending());
+        List<Product> products = productRepository.findAllActive(pageable).getContent();
+        fillSellerAvatars(products);
+        return products;
+    }
+
+    public Page<Product> searchProducts(String keyword, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        return productRepository.searchActiveByName(keyword, pageable);
     }
 }

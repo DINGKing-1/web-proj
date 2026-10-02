@@ -6,16 +6,15 @@ import com.secondhand.mall.entity.*;
 import com.secondhand.mall.service.*;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.math.BigDecimal;
 import java.util.*;
 
 @RestController
 @RequestMapping("/api")
-public class ApiController {
+public class ApiController extends BaseApiController {
 
     private final ProductService productService;
     private final CommentService commentService;
@@ -23,39 +22,19 @@ public class ApiController {
     private final CartService cartService;
     private final OrderService orderService;
     private final AddressService addressService;
+    private final FileUploadService fileUploadService;
 
     public ApiController(ProductService productService, CommentService commentService,
                          UserService userService, CartService cartService,
-                         OrderService orderService, AddressService addressService) {
+                         OrderService orderService, AddressService addressService,
+                         FileUploadService fileUploadService) {
         this.productService = productService;
         this.commentService = commentService;
         this.userService = userService;
         this.cartService = cartService;
         this.orderService = orderService;
         this.addressService = addressService;
-    }
-
-    // ========== 辅助方法 ==========
-    private String getLoginUsername(HttpSession session) {
-        Object username = session.getAttribute("username");
-        if (username == null) {
-            throw new com.secondhand.mall.exception.UnauthorizedException("请先登录");
-        }
-        return username.toString();
-    }
-
-    private Map<String, Object> ok(String message) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("success", true);
-        map.put("message", message);
-        return map;
-    }
-
-    private Map<String, Object> fail(String message) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("success", false);
-        map.put("message", message);
-        return map;
+        this.fileUploadService = fileUploadService;
     }
 
     // ========== 认证 ==========
@@ -67,35 +46,34 @@ public class ApiController {
             session.setAttribute("nickname", user.getNickname());
             session.setAttribute("role", user.getRole());
 
-            Map<String, Object> result = ok("登录成功");
-            result.put("username", user.getUsername());
-            result.put("nickname", user.getNickname());
-            result.put("balance", user.getBalance());
-            result.put("avatar", user.getAvatar());
-            result.put("role", user.getRole());
-            return result;
+            return ok("登录成功")
+                    .put("username", user.getUsername())
+                    .put("nickname", user.getNickname())
+                    .put("balance", user.getBalance())
+                    .put("avatar", user.getAvatar())
+                    .put("role", user.getRole())
+                    .toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
     @PostMapping("/register")
     public Map<String, Object> register(@Valid @RequestBody RegisterRequest request, HttpSession session) {
         try {
-            User user = userService.register(request);
-            userService.setSessionId(user.getUsername(), session.getId());
+            User user = userService.register(request, session.getId());
             session.setAttribute("username", user.getUsername());
             session.setAttribute("nickname", user.getNickname());
             session.setAttribute("role", user.getRole());
 
-            Map<String, Object> result = ok("注册成功");
-            result.put("username", user.getUsername());
-            result.put("nickname", user.getNickname());
-            result.put("balance", user.getBalance());
-            result.put("avatar", user.getAvatar());
-            return result;
+            return ok("注册成功")
+                    .put("username", user.getUsername())
+                    .put("nickname", user.getNickname())
+                    .put("balance", user.getBalance())
+                    .put("avatar", user.getAvatar())
+                    .toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -106,82 +84,60 @@ public class ApiController {
             userService.setSessionId(username, null);
         }
         session.invalidate();
-        return ok("已退出登录");
+        return ok("已退出登录").toMap();
     }
 
     @GetMapping("/session")
     public Map<String, Object> getSession(HttpSession session) {
         String username = (String) session.getAttribute("username");
         if (username == null) {
-            return fail("未登录");
+            return fail("未登录").toMap();
         }
         try {
             User user = userService.findByUsername(username);
-            Map<String, Object> result = ok("已登录");
-            result.put("username", username);
-            result.put("nickname", user.getNickname());
-            result.put("role", user.getRole());
-            result.put("avatar", user.getAvatar());
-            result.put("balance", user.getBalance());
-            return result;
+            long buyerCount = orderService.getBuyerActiveOrderCount(username);
+            long sellerCount = orderService.getSellerPendingOrderCount(username);
+            return ok("已登录")
+                    .put("username", username)
+                    .put("nickname", user.getNickname())
+                    .put("role", user.getRole())
+                    .put("avatar", user.getAvatar())
+                    .put("balance", user.getBalance())
+                    .put("buyerOrderCount", buyerCount)
+                    .put("sellerOrderCount", sellerCount)
+                    .toMap();
         } catch (RuntimeException e) {
-            return fail("用户不存在");
+            return fail("用户不存在").toMap();
         }
     }
 
     // ========== 图片上传（支持多张） ==========
+    @SuppressWarnings("unchecked")
     @PostMapping("/upload-image")
     public Map<String, Object> uploadImage(@RequestBody Map<String, Object> request) {
         try {
-            // 支持单张 base64 或多张
             Object imageObj = request.get("image");
-            @SuppressWarnings("unchecked")
-            List<String> imageList = null;
-
+            List<String> imageList;
             if (imageObj instanceof List) {
                 imageList = (List<String>) imageObj;
             } else if (imageObj instanceof String) {
                 imageList = List.of((String) imageObj);
+            } else {
+                return fail("图片数据为空").toMap();
             }
 
-            if (imageList == null || imageList.isEmpty()) {
-                return fail("图片数据为空");
-            }
-
-            String uploadDir = System.getProperty("user.dir") + File.separator + "product-images";
-            File dir = new File(uploadDir);
-            if (!dir.exists()) dir.mkdirs();
-
-            List<String> urls = new ArrayList<>();
-            for (String base64Data : imageList) {
-                String[] parts = base64Data.split(",");
-                String header = parts[0];
-                String data = parts.length > 1 ? parts[1] : parts[0];
-
-                String ext = "jpg";
-                if (header.contains("png")) ext = "png";
-                else if (header.contains("gif")) ext = "gif";
-                else if (header.contains("webp")) ext = "webp";
-
-                String filename = UUID.randomUUID().toString().substring(0, 8) + "_" + System.currentTimeMillis() + "." + ext;
-                File file = new File(dir, filename);
-                byte[] imageBytes = Base64.getDecoder().decode(data);
-                try (FileOutputStream fos = new FileOutputStream(file)) {
-                    fos.write(imageBytes);
-                }
-                urls.add("/product-images/" + filename);
-            }
-
-            Map<String, Object> result = ok("上传成功");
-            result.put("imageUrls", urls);
-            result.put("imageUrl", urls.get(0)); // 兼容旧代码
-            return result;
-        } catch (Exception e) {
-            return fail("上传失败: " + e.getMessage());
+            List<String> urls = fileUploadService.uploadProductImages(imageList);
+            return ok("上传成功")
+                    .put("imageUrls", urls)
+                    .put("imageUrl", urls.get(0))
+                    .toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
         }
     }
 
     // ========== 商品 ==========
+    @SuppressWarnings("unchecked")
     @PostMapping("/products")
     public Map<String, Object> createProduct(@RequestBody Map<String, Object> request, HttpSession session) {
         try {
@@ -194,39 +150,35 @@ public class ApiController {
             product.setOriginalPrice(new BigDecimal(request.get("originalPrice").toString()));
             product.setSecondHandPrice(new BigDecimal(request.get("secondHandPrice").toString()));
             product.setItemCondition((String) request.get("condition"));
-            product.setSellerName((String) request.get("sellerName"));
-            product.setSellerPhone((String) request.get("sellerPhone"));
             product.setSellerUsername(username);
 
-            // 从用户信息中获取头像
+            // 优先使用登录用户信息
             try {
                 User seller = userService.findByUsername(username);
+                product.setSellerName(seller.getNickname() != null ? seller.getNickname() : seller.getUsername());
+                product.setSellerPhone(seller.getPhone() != null ? seller.getPhone() : "");
                 product.setSellerAvatar(seller.getAvatar());
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                product.setSellerName(username);
+                product.setSellerPhone("");
+            }
 
-            // 多图片：接收逗号字符串或数组
             Object imageObj = request.get("imageUrl");
             if (imageObj instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<String> urls = (List<String>) imageObj;
-                product.setImageUrls(urls);
+                product.setImageUrls((List<String>) imageObj);
             } else if (imageObj instanceof String && !((String) imageObj).isEmpty()) {
                 product.setImageUrl((String) imageObj);
             }
 
-            // 库存数量
             Object qtyObj = request.get("quantity");
             if (qtyObj != null) {
                 product.setQuantity(Integer.parseInt(qtyObj.toString()));
             }
 
             Product saved = productService.createProduct(product);
-
-            Map<String, Object> result = ok("商品发布成功");
-            result.put("productId", saved.getId());
-            return result;
+            return ok("商品发布成功").put("productId", saved.getId()).toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -236,26 +188,45 @@ public class ApiController {
             @RequestParam(required = false) Double minPrice,
             @RequestParam(required = false) Double maxPrice,
             @RequestParam(required = false) String condition,
-            @RequestParam(required = false) String sortBy) {
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "12") int size) {
 
-        List<Product> products = productService.getFilteredProducts(category, minPrice, maxPrice, condition, sortBy);
-        Map<String, Object> result = ok("获取成功");
-        result.put("products", products);
-        result.put("total", products.size());
-        return result;
+        // 获取筛选后的商品
+        List<Product> allProducts;
+        boolean hasFilters = (category != null && !category.isEmpty()) || minPrice != null || maxPrice != null || (condition != null && !condition.isEmpty());
+        boolean hasSort = sortBy != null && !sortBy.isEmpty();
+
+        if (!hasFilters && !hasSort) {
+            allProducts = productService.getActiveProducts();
+        } else {
+            allProducts = productService.getFilteredProducts(category, minPrice, maxPrice, condition, sortBy);
+        }
+
+        // 手动分页
+        int totalItems = allProducts.size();
+        int totalPages = (int) Math.ceil((double) totalItems / size);
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, totalItems);
+
+        List<Product> pageProducts = (fromIndex < totalItems) ? allProducts.subList(fromIndex, toIndex) : List.of();
+
+        return ok("获取成功")
+                .put("products", pageProducts)
+                .put("total", totalItems)
+                .put("totalPages", totalPages)
+                .put("currentPage", page)
+                .toMap();
     }
 
     @GetMapping("/products/{id}")
     public Map<String, Object> getProduct(@PathVariable Long id) {
         return productService.getProductById(id)
-                .map(product -> {
-                    Map<String, Object> result = ok("获取成功");
-                    result.put("product", product);
-                    return result;
-                })
-                .orElseGet(() -> fail("商品不存在"));
+                .map(product -> ok("获取成功").put("product", product).toMap())
+                .orElseGet(() -> fail("商品不存在").toMap());
     }
 
+    @SuppressWarnings("unchecked")
     @PutMapping("/products/{id}")
     public Map<String, Object> updateProduct(@PathVariable Long id,
                                               @RequestBody Map<String, Object> request,
@@ -267,9 +238,7 @@ public class ApiController {
             if (request.containsKey("imageUrl")) {
                 Object imageObj = request.get("imageUrl");
                 if (imageObj instanceof List) {
-                    @SuppressWarnings("unchecked")
-                    List<String> urls = (List<String>) imageObj;
-                    updates.setImageUrls(urls);
+                    updates.setImageUrls((List<String>) imageObj);
                 } else if (imageObj instanceof String) {
                     updates.setImageUrl((String) imageObj);
                 }
@@ -284,9 +253,9 @@ public class ApiController {
             if (request.containsKey("quantity")) updates.setQuantity(Integer.parseInt(request.get("quantity").toString()));
 
             productService.updateProduct(id, updates, username);
-            return ok("更新成功");
+            return ok("更新成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -295,9 +264,9 @@ public class ApiController {
         try {
             String username = getLoginUsername(session);
             productService.deleteProduct(id, username);
-            return ok("删除成功");
+            return ok("删除成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -305,10 +274,7 @@ public class ApiController {
     @GetMapping("/products/{id}/comments")
     public Map<String, Object> getComments(@PathVariable Long id) {
         List<Map<String, Object>> comments = commentService.getCommentsByProduct(id);
-        Map<String, Object> result = ok("获取成功");
-        result.put("comments", comments);
-        result.put("total", comments.size());
-        return result;
+        return ok("获取成功").put("comments", comments).put("total", comments.size()).toMap();
     }
 
     @PostMapping("/products/{id}/comments")
@@ -319,9 +285,9 @@ public class ApiController {
             String username = getLoginUsername(session);
             String content = request.get("content");
             commentService.addComment(id, username, content);
-            return ok("评论成功");
+            return ok("评论成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -332,9 +298,9 @@ public class ApiController {
         try {
             String username = getLoginUsername(session);
             commentService.deleteComment(id, commentId, username);
-            return ok("删除成功");
+            return ok("删除成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -345,20 +311,17 @@ public class ApiController {
             String username = getLoginUsername(session);
             Long productId = Long.parseLong(request.get("productId").toString());
             cartService.addToCart(username, productId);
-            return ok("已加入购物车");
+            return ok("已加入购物车").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
     @GetMapping("/cart")
     public Map<String, Object> getCart(HttpSession session) {
         String username = getLoginUsername(session);
-        List<Map<String, Object>> items = cartService.getCart(username);
-        Map<String, Object> result = ok("获取成功");
-        result.put("items", items);
-        result.put("total", items.size());
-        return result;
+        List<?> items = cartService.getCart(username);
+        return ok("获取成功").put("items", items).put("total", items.size()).toMap();
     }
 
     @DeleteMapping("/cart/{id}")
@@ -366,10 +329,28 @@ public class ApiController {
         try {
             String username = getLoginUsername(session);
             cartService.removeFromCart(id, username);
-            return ok("已移除");
+            return ok("已移除").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
+    }
+
+    @DeleteMapping("/cart")
+    public Map<String, Object> clearCart(HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            cartService.clearCart(username);
+            return ok("购物车已清空").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    @GetMapping("/cart/count")
+    public Map<String, Object> getCartCount(HttpSession session) {
+        String username = getLoginUsername(session);
+        int count = cartService.getCartCount(username);
+        return ok("获取成功").put("count", count).toMap();
     }
 
     // ========== 用户信息 ==========
@@ -378,18 +359,19 @@ public class ApiController {
         String username = getLoginUsername(session);
         try {
             User user = userService.findByUsername(username);
-            Map<String, Object> result = ok("获取成功");
-            result.put("username", user.getUsername());
-            result.put("nickname", user.getNickname());
-            result.put("email", user.getEmail());
-            result.put("phone", user.getPhone());
-            result.put("balance", user.getBalance());
-            result.put("avatar", user.getAvatar());
-            result.put("role", user.getRole());
-            result.put("createdAt", user.getCreatedAt());
-            return result;
+            return ok("获取成功")
+                    .put("username", user.getUsername())
+                    .put("nickname", user.getNickname())
+                    .put("email", user.getEmail())
+                    .put("phone", user.getPhone())
+                    .put("balance", user.getBalance())
+                    .put("avatar", user.getAvatar())
+                    .put("role", user.getRole())
+                    .put("createdAt", user.getCreatedAt())
+                    .put("lastActiveTime", user.getLastActiveTime())
+                    .toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -406,13 +388,13 @@ public class ApiController {
                 (String) request.get("password"),
                 (String) request.get("avatar")
             );
-            Map<String, Object> result = ok("更新成功");
-            result.put("nickname", updated.getNickname());
-            result.put("balance", updated.getBalance());
-            result.put("avatar", updated.getAvatar());
-            return result;
+            return ok("更新成功")
+                    .put("nickname", updated.getNickname())
+                    .put("balance", updated.getBalance())
+                    .put("avatar", updated.getAvatar())
+                    .toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -420,10 +402,7 @@ public class ApiController {
     public Map<String, Object> getUserProducts(HttpSession session) {
         String username = getLoginUsername(session);
         List<Product> products = productService.getUserProducts(username);
-        Map<String, Object> result = ok("获取成功");
-        result.put("products", products);
-        result.put("total", products.size());
-        return result;
+        return ok("获取成功").put("products", products).put("total", products.size()).toMap();
     }
 
     // ========== 订单 ==========
@@ -433,9 +412,13 @@ public class ApiController {
             String username = getLoginUsername(session);
             Long productId = Long.parseLong(request.get("productId").toString());
 
+            int quantity = 1;
+            if (request.containsKey("quantity") && request.get("quantity") != null) {
+                quantity = Integer.parseInt(request.get("quantity").toString());
+            }
+
             Order order = orderService.createOrder(
-                username,
-                productId,
+                username, productId,
                 new BigDecimal(request.get("productPrice").toString()),
                 (String) request.get("productName"),
                 (String) request.get("category"),
@@ -443,14 +426,13 @@ public class ApiController {
                 (String) request.get("receiverName"),
                 (String) request.get("receiverPhone"),
                 (String) request.get("receiverAddress"),
-                (String) request.get("paymentMethod")
+                (String) request.get("paymentMethod"),
+                quantity
             );
 
-            Map<String, Object> result = ok("订单创建成功");
-            result.put("orderId", order.getId());
-            return result;
+            return ok("订单创建成功").put("orderId", order.getId()).toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -459,22 +441,19 @@ public class ApiController {
                                           HttpSession session) {
         String username = getLoginUsername(session);
         List<Order> orders = orderService.getBuyerOrders(username, status);
-        Map<String, Object> result = ok("获取成功");
-        result.put("orders", orders);
-        result.put("total", orders.size());
-        return result;
+        return ok("获取成功").put("orders", orders).put("total", orders.size()).toMap();
     }
 
     @GetMapping("/orders/{id}")
     public Map<String, Object> getOrderById(@PathVariable Long id, HttpSession session) {
-        getLoginUsername(session); // 验证登录
-        return orderService.getOrderById(id)
-                .map(order -> {
-                    Map<String, Object> result = ok("获取成功");
-                    result.put("order", order);
-                    return result;
-                })
-                .orElseGet(() -> fail("订单不存在"));
+        try {
+            String username = getLoginUsername(session);
+            return orderService.getOrderById(id, username)
+                    .map(order -> ok("获取成功").put("order", order).toMap())
+                    .orElseGet(() -> fail("订单不存在").toMap());
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
     }
 
     @PutMapping("/orders/{id}")
@@ -486,9 +465,9 @@ public class ApiController {
             String status = request.get("status");
             String trackingNumber = request.get("trackingNumber");
             orderService.updateOrderStatus(id, status, trackingNumber, username);
-            return ok("状态更新成功");
+            return ok("状态更新成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -497,9 +476,9 @@ public class ApiController {
         try {
             String username = getLoginUsername(session);
             orderService.deleteOrder(id, username);
-            return ok("删除成功");
+            return ok("删除成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -508,9 +487,9 @@ public class ApiController {
         try {
             String username = getLoginUsername(session);
             orderService.cancelOrder(id, username);
-            return ok("订单已取消，余额已退还");
+            return ok("订单已取消，余额已退还").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -519,9 +498,9 @@ public class ApiController {
         try {
             String username = getLoginUsername(session);
             orderService.completeOrder(id, username);
-            return ok("订单已完成");
+            return ok("订单已完成").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -530,10 +509,7 @@ public class ApiController {
                                                 HttpSession session) {
         String username = getLoginUsername(session);
         List<Order> orders = orderService.getSellerOrders(username, status);
-        Map<String, Object> result = ok("获取成功");
-        result.put("orders", orders);
-        result.put("total", orders.size());
-        return result;
+        return ok("获取成功").put("orders", orders).put("total", orders.size()).toMap();
     }
 
     // ========== 地址 ==========
@@ -541,10 +517,7 @@ public class ApiController {
     public Map<String, Object> getAddresses(HttpSession session) {
         String username = getLoginUsername(session);
         List<Address> addresses = addressService.getAddresses(username);
-        Map<String, Object> result = ok("获取成功");
-        result.put("addresses", addresses);
-        result.put("total", addresses.size());
-        return result;
+        return ok("获取成功").put("addresses", addresses).put("total", addresses.size()).toMap();
     }
 
     @PostMapping("/addresses")
@@ -563,11 +536,9 @@ public class ApiController {
             address.setIsDefault(Boolean.TRUE.equals(request.get("isDefault")));
 
             Address saved = addressService.addAddress(address);
-            Map<String, Object> result = ok("地址添加成功");
-            result.put("addressId", saved.getId());
-            return result;
+            return ok("地址添加成功").put("addressId", saved.getId()).toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -588,9 +559,9 @@ public class ApiController {
             if (request.containsKey("isDefault")) updates.setIsDefault(Boolean.TRUE.equals(request.get("isDefault")));
 
             addressService.updateAddress(id, updates, username);
-            return ok("更新成功");
+            return ok("更新成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
     }
 
@@ -599,9 +570,35 @@ public class ApiController {
         try {
             String username = getLoginUsername(session);
             addressService.deleteAddress(id, username);
-            return ok("删除成功");
+            return ok("删除成功").toMap();
         } catch (RuntimeException e) {
-            return fail(e.getMessage());
+            return fail(e.getMessage()).toMap();
         }
+    }
+
+    @PostMapping("/admin/shutdown")
+    public Map<String, Object> shutdown(HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            if (!"admin".equals(username)) {
+                return fail("无权限").toMap();
+            }
+            new Thread(() -> {
+                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                System.exit(0);
+            }).start();
+            return ok("应用即将关闭").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    @PostMapping("/internal/shutdown")
+    public Map<String, Object> internalShutdown() {
+        new Thread(() -> {
+            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+            System.exit(0);
+        }).start();
+        return ok("应用即将关闭").toMap();
     }
 }

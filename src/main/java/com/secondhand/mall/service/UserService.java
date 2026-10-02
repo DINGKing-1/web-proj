@@ -6,8 +6,14 @@ import com.secondhand.mall.entity.User;
 import com.secondhand.mall.repository.UserRepository;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Service
@@ -21,7 +27,7 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    public User register(RegisterRequest request) {
+    public User register(RegisterRequest request, String sessionId) {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new RuntimeException("用户名已存在");
         }
@@ -35,6 +41,7 @@ public class UserService {
         user.setRole("user");
         user.setBalance(new BigDecimal("10000.00"));
         user.setAvatar("/user-avatar/default.jpg");
+        user.setSessionId(sessionId);
 
         return userRepository.save(user);
     }
@@ -66,6 +73,13 @@ public class UserService {
     public void setSessionId(String username, String sessionId) {
         userRepository.findByUsername(username).ifPresent(user -> {
             user.setSessionId(sessionId);
+            userRepository.save(user);
+        });
+    }
+
+    public void updateLastActiveTime(String username) {
+        userRepository.findByUsername(username).ifPresent(user -> {
+            user.setLastActiveTime(LocalDateTime.now());
             userRepository.save(user);
         });
     }
@@ -108,5 +122,47 @@ public class UserService {
         User user = findByUsername(username);
         user.setBalance(newBalance);
         return userRepository.save(user);
+    }
+
+    public String uploadAvatar(String username, MultipartFile file) throws IOException {
+        // 验证文件类型
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new RuntimeException("只支持图片文件");
+        }
+
+        // 验证文件大小（最大 5MB）
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new RuntimeException("图片大小不能超过 5MB");
+        }
+
+        // 生成文件名
+        String extension = contentType.substring(contentType.lastIndexOf("/") + 1);
+        String filename = username + "_" + System.currentTimeMillis() + "." + extension;
+
+        // 保存文件
+        Path uploadPath = Paths.get("user-avatar");
+        if (!Files.exists(uploadPath)) {
+            Files.createDirectories(uploadPath);
+        }
+
+        Path filePath = uploadPath.resolve(filename);
+        file.transferTo(filePath.toFile());
+
+        // 更新用户头像
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("用户不存在"));
+
+        // 删除旧头像（如果不是默认头像）
+        if (user.getAvatar() != null && !user.getAvatar().contains("default")) {
+            String oldFilename = user.getAvatar().substring(user.getAvatar().lastIndexOf("/") + 1);
+            Path oldAvatar = Paths.get("user-avatar", oldFilename);
+            Files.deleteIfExists(oldAvatar);
+        }
+
+        user.setAvatar("/user-avatar/" + filename);
+        userRepository.save(user);
+
+        return "/user-avatar/" + filename;
     }
 }

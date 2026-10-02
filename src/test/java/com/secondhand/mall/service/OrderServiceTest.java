@@ -1,5 +1,6 @@
 package com.secondhand.mall.service;
 
+import com.secondhand.mall.entity.Order;
 import com.secondhand.mall.entity.Product;
 import com.secondhand.mall.entity.User;
 import com.secondhand.mall.repository.OrderRepository;
@@ -14,6 +15,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -125,5 +127,121 @@ class OrderServiceTest {
         assertEquals(0, updated.getQuantity());
 
         executor.shutdown();
+    }
+
+    @Test
+    void testInvalidStateTransition_ShouldThrowException() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        // 创建订单
+        Order order = orderService.createOrder("buyer1", product.getId(), BigDecimal.valueOf(100.0),
+                "Test Product", "electronics", "test.jpg",
+                "Receiver", "13800000001", "Test Address", "balance");
+
+        // 尝试从unshipped直接跳到completed（非法流转）
+        assertThrows(RuntimeException.class, () -> {
+            orderService.updateOrderStatus(order.getId(), "completed", "buyer1");
+        });
+    }
+
+    @Test
+    void testValidStateTransition_ShouldSucceed() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        // 创建订单
+        Order order = orderService.createOrder("buyer1", product.getId(), BigDecimal.valueOf(100.0),
+                "Test Product", "electronics", "test.jpg",
+                "Receiver", "13800000001", "Test Address", "balance");
+
+        // 合法流转：unshipped -> shipped
+        Order shipped = orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+        assertEquals("shipped", shipped.getStatus());
+    }
+
+    @Test
+    void testCancelOrder_SellerInsufficientBalance_ShouldThrow() {
+        // 创建卖家，余额为0
+        Product product = createTestProduct("seller1", 100.0, 1);
+        User seller = createTestUser("seller1", 0.0);
+        createTestUser("buyer1", 10000.0);
+
+        // 创建订单（此时卖家余额会增加100）
+        Order order = orderService.createOrder("buyer1", product.getId(), BigDecimal.valueOf(100.0),
+                "Test Product", "electronics", "test.jpg",
+                "Receiver", "13800000001", "Test Address", "balance");
+
+        // 模拟卖家花掉所有余额
+        seller.setBalance(BigDecimal.ZERO);
+        userRepository.save(seller);
+
+        // 尝试取消订单，卖家余额不足
+        assertThrows(RuntimeException.class, () -> {
+            orderService.cancelOrder(order.getId(), "buyer1");
+        });
+    }
+
+    @Test
+    void testDeleteOrder_ActiveOrder_ShouldThrow() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        // 创建订单
+        Order order = orderService.createOrder("buyer1", product.getId(), BigDecimal.valueOf(100.0),
+                "Test Product", "electronics", "test.jpg",
+                "Receiver", "13800000001", "Test Address", "balance");
+
+        // 尝试删除活跃订单
+        assertThrows(RuntimeException.class, () -> {
+            orderService.deleteOrder(order.getId(), "buyer1");
+        });
+    }
+
+    @Test
+    void testDeleteOrder_CompletedOrder_ShouldSucceed() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        // 创建订单
+        Order order = orderService.createOrder("buyer1", product.getId(), BigDecimal.valueOf(100.0),
+                "Test Product", "electronics", "test.jpg",
+                "Receiver", "13800000001", "Test Address", "balance");
+
+        // 完成订单
+        orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+        orderService.updateOrderStatus(order.getId(), "received", "buyer1");
+        orderService.updateOrderStatus(order.getId(), "completed", "buyer1");
+
+        // 删除已完成的订单
+        assertDoesNotThrow(() -> {
+            orderService.deleteOrder(order.getId(), "buyer1");
+        });
+    }
+
+    @Test
+    void testGetSellerOrders_ShouldReturnOrders() {
+        // 创建卖家和商品
+        Product product1 = createTestProduct("seller1", 100.0, 1);
+        Product product2 = createTestProduct("seller1", 200.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+        createTestUser("buyer2", 10000.0);
+
+        // 创建订单
+        orderService.createOrder("buyer1", product1.getId(), BigDecimal.valueOf(100.0),
+                "Test Product 1", "electronics", "test.jpg",
+                "Receiver", "13800000001", "Test Address", "balance");
+        orderService.createOrder("buyer2", product2.getId(), BigDecimal.valueOf(200.0),
+                "Test Product 2", "electronics", "test.jpg",
+                "Receiver", "13800000002", "Test Address", "balance");
+
+        List<Order> orders = orderService.getSellerOrders("seller1", null);
+
+        assertEquals(2, orders.size());
     }
 }

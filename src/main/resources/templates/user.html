@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>个人中心 - 优品汇</title>
+    <link rel="stylesheet" href="/css/style.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">跳到主要内容</a>
+    <header class="header"><nav class="nav-container"><div class="logo"><a href="/"><div class="logo-icon"><i class="fas fa-gem"></i></div><span class="logo-text">优品汇</span></a></div><div class="search-bar"><form action="/search" method="GET"><input type="text" name="q" placeholder="搜索优质二手商品..." class="search-input"><button type="submit" class="search-btn" aria-label="搜索"><i class="fas fa-search"></i></button></form></div><div class="nav-actions"><th:block th:if="${isLoggedIn}"><a href="/cart" class="btn btn-ghost" aria-label="购物车" style="position:relative;"><i class="fas fa-shopping-cart"></i><span class="cart-count-badge" style="display:none">0</span></a> <a href="/upload" class="btn btn-outline"><i class="fas fa-plus"></i> 发布</a> <div class="user-dropdown" style="position:relative;"><button class="btn btn-ghost user-menu-btn" style="gap:8px;"><img src="/user-avatar/default.jpg" style="width:30px;height:30px;border-radius:50%;object-fit:cover;" onerror="this.src='/user-avatar/default.jpg'"><span style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" th:text="${sessionNickname != null ? sessionNickname : sessionUsername}">用户</span><i class="fas fa-chevron-down" style="font-size:10px;"></i></button></div></th:block><th:block th:unless="${isLoggedIn}"><a href="/login" class="btn btn-outline">登录</a><a href="/login" class="btn btn-accent">注册</a></th:block></div></nav></header>
+    <section class="category-bar"><div class="category-container"><a href="/category/全部" class="category-item">全部</a><a href="/category/手机" class="category-item">手机</a><a href="/category/笔记本电脑" class="category-item">笔记本电脑</a><a href="/category/耳机" class="category-item">耳机</a><a href="/category/相机" class="category-item">相机</a><a href="/category/手机壳" class="category-item">手机壳</a><a href="/category/空调" class="category-item">空调</a><a href="/category/冰箱" class="category-item">冰箱</a><a href="/category/半身裙" class="category-item">半身裙</a><a href="/category/其他" class="category-item">其他</a></div></section>
+
+    <div class="personal-center" id="main-content">
+        <!-- Sidebar -->
+        <aside class="pc-sidebar">
+            <div class="pc-sidebar-header">
+                <img src="/user-avatar/default.jpg" class="pc-sidebar-avatar" id="sidebarAvatar" onerror="this.src='/user-avatar/default.jpg'" alt="">
+                <div class="pc-sidebar-user-info">
+                    <h4 id="sidebarName">...</h4>
+                    <span id="sidebarRole"></span>
+                </div>
+            </div>
+            <nav style="padding:0 8px;">
+                <div class="pc-nav-item active" data-panel="profile"><i class="fas fa-user-circle"></i> 个人信息</div>
+                <div class="pc-nav-item" data-panel="products"><i class="fas fa-box"></i> 我的商品</div>
+                <div class="pc-nav-item" data-panel="security"><i class="fas fa-shield-alt"></i> 账号安全</div>
+            </nav>
+        </aside>
+
+        <!-- Content panels -->
+        <main class="pc-content">
+            <!-- Panel: Profile -->
+            <section class="pc-panel active" id="panel-profile">
+                <div class="pc-panel-header"><h2>个人信息</h2><p>管理你的账户资料</p></div>
+                <div class="content-section">
+                    <div style="display:flex;align-items:center;gap:20px;margin-bottom:24px;">
+                        <div class="profile-avatar-container" onclick="changeAvatar()">
+                            <img src="/user-avatar/default.jpg" class="profile-avatar-large" id="profileAvatar" onerror="this.src='/user-avatar/default.jpg'" alt="">
+                            <div class="profile-avatar-overlay"><i class="fas fa-camera"></i></div>
+                        </div>
+                        <div>
+                            <h3 style="font-size:20px;font-weight:600;" id="profileNickname">--</h3>
+                            <p style="color:var(--color-text-secondary);font-size:13px;">@<span id="profileUsername">--</span> · <span id="profileRole">--</span></p>
+                            <div style="font-size:28px;font-weight:700;color:var(--color-accent-dark);margin-top:4px;">¥<span id="profileBalance">0</span></div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>昵称</label><input type="text" id="editNickname" class="form-input"></div>
+                        <div class="form-group"><label>邮箱</label><input type="email" id="editEmail" class="form-input"></div>
+                        <div class="form-group"><label>手机号</label><input type="tel" id="editPhone" class="form-input"></div>
+                    </div>
+                    <button class="btn btn-accent ripple" onclick="saveProfile()" style="margin-top:16px;">保存修改</button>
+                </div>
+            </section>
+
+            <!-- Panel: My Products -->
+            <section class="pc-panel" id="panel-products">
+                <div class="pc-panel-header"><h2>我的商品</h2><p>管理已发布的商品</p></div>
+                <a href="/upload" class="btn btn-accent btn-sm" style="margin-bottom:20px;"><i class="fas fa-plus"></i> 发布新商品</a>
+                <div id="myProducts"><div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>加载中...</p></div></div>
+            </section>
+
+            <!-- Panel: Account Security -->
+            <section class="pc-panel" id="panel-security">
+                <div class="pc-panel-header"><h2>账号安全</h2><p>修改登录密码</p></div>
+                <div class="content-section">
+                    <div class="form-group"><label>当前密码</label><input type="password" id="currentPassword" class="form-input" placeholder="输入当前密码"></div>
+                    <div class="form-group"><label>新密码</label><input type="password" id="newPassword" class="form-input" placeholder="至少6位"></div>
+                    <div class="form-group"><label>确认新密码</label><input type="password" id="confirmPassword" class="form-input" placeholder="再次输入新密码"></div>
+                    <button class="btn btn-accent ripple" onclick="changePassword()"><i class="fas fa-lock"></i> 修改密码</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <footer class="footer"><div class="footer-container"><div class="footer-section"><h4>优品汇</h4><p>致力于打造高端二手交易平台。</p></div><div class="footer-section"><h4>服务</h4><ul><li><a href="#">帮助中心</a></li><li><a href="#">交易保障</a></li></ul></div><div class="footer-section"><h4>关注</h4><div class="social-links"><a href="#"><i class="fab fa-weixin"></i></a><a href="#"><i class="fab fa-weibo"></i></a></div></div></div><div class="footer-bottom"><p>&copy; 2026 优品汇 All Rights Reserved</p></div></footer>
+
+    <script src="/js/main.js"></script>
+    <script>
+    var currentUser = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        currentUser = App.getUser();
+        if (!currentUser) { window.location.href = '/login'; return; }
+        loadProfile();
+        initSidebar();
+    });
+
+    // ===== Sidebar Navigation =====
+    function initSidebar() {
+        document.querySelectorAll('.pc-nav-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.pc-nav-item').forEach(function(n) { n.classList.remove('active'); });
+                this.classList.add('active');
+                var panelId = this.dataset.panel;
+                document.querySelectorAll('.pc-panel').forEach(function(p) { p.classList.remove('active'); });
+                document.getElementById('panel-' + panelId).classList.add('active');
+                // Lazy load
+                if (panelId === 'products') loadMyProducts();
+                if (panelId === 'security') {} // nothing to preload
+            });
+        });
+    }
+    function refreshSidebarUser(user) {
+        document.getElementById('sidebarAvatar').src = user.avatar || '/user-avatar/default.jpg';
+        document.getElementById('sidebarName').textContent = user.nickname || user.username;
+        document.getElementById('sidebarRole').textContent = user.role === 'admin' ? '管理员' : '普通用户';
+        document.getElementById('profileAvatar').src = user.avatar || '/user-avatar/default.jpg';
+        document.getElementById('profileNickname').textContent = user.nickname || user.username;
+        document.getElementById('profileUsername').textContent = user.username;
+        document.getElementById('profileRole').textContent = user.role === 'admin' ? '管理员' : '用户';
+        document.getElementById('profileBalance').textContent = Number(user.balance || 0).toLocaleString(undefined, {minimumFractionDigits:2});
+        document.getElementById('editNickname').value = user.nickname || '';
+        document.getElementById('editEmail').value = user.email || '';
+        document.getElementById('editPhone').value = user.phone || '';
+    }
+
+    // ===== Profile =====
+    function loadProfile() {
+        App.api('/api/user').then(function(d) {
+            if (!d.success) { App.toast('加载失败', 'error'); return; }
+            currentUser = d;
+            // 只更新可变字段，不覆盖username（防止多标签页账号串扰）
+            var existingUser = App.getUser();
+            if (existingUser) {
+                existingUser.nickname = d.nickname;
+                existingUser.avatar = d.avatar;
+                existingUser.balance = d.balance;
+                App.setUser(existingUser);
+            }
+            refreshSidebarUser(d);
+        });
+    }
+    function saveProfile() {
+        App.api('/api/user', { method: 'PUT', body: {
+            nickname: document.getElementById('editNickname').value,
+            email: document.getElementById('editEmail').value,
+            phone: document.getElementById('editPhone').value
+        }}).then(function(d) {
+            if (d.success) { App.toast('保存成功', 'success'); loadProfile(); }
+            else { App.toast(d.message, 'error'); }
+        });
+    }
+
+    function changePassword() {
+        var cp = document.getElementById('currentPassword').value;
+        var np = document.getElementById('newPassword').value;
+        var cf = document.getElementById('confirmPassword').value;
+        if (!cp || !np || !cf) { App.toast('请填写完整', 'warning'); return; }
+        if (np.length < 6) { App.toast('新密码至少6位', 'warning'); return; }
+        if (np !== cf) { App.toast('两次密码不一致', 'warning'); return; }
+        App.api('/api/user', { method: 'PUT', body: { currentPassword: cp, password: np } }).then(function(d) {
+            if (d.success) {
+                App.toast('密码修改成功', 'success');
+                document.getElementById('currentPassword').value = '';
+                document.getElementById('newPassword').value = '';
+                document.getElementById('confirmPassword').value = '';
+            } else { App.toast(d.message, 'error'); }
+        });
+    }
+    function changeAvatar() {
+        var input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*';
+        input.onchange = function() {
+            if (!this.files[0]) return;
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                App.api('/api/upload-image', { method: 'POST', body: { image: e.target.result } }).then(function(ud) {
+                    if (ud.success) {
+                        App.api('/api/user', { method: 'PUT', body: { avatar: ud.imageUrl } }).then(function(rd) {
+                            if (rd.success) { App.toast('头像更新成功', 'success'); loadProfile(); }
+                        });
+                    } else { App.toast(ud.message, 'error'); }
+                });
+            };
+            reader.readAsDataURL(this.files[0]);
+        };
+        input.click();
+    }
+
+    // ===== My Products =====
+    function loadMyProducts() {
+        App.api('/api/user/products').then(function(d) {
+            var el = document.getElementById('myProducts');
+            if (!d.success || !d.products || d.products.length === 0) {
+                el.innerHTML = '<div class="empty-state"><i class="fas fa-box-open"></i><p>暂无发布的商品</p></div>'; return;
+            }
+            var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;">';
+            d.products.forEach(function(p) {
+                var img = p.imageUrl || '';
+                if (img.indexOf(',') > -1) img = img.split(',')[0].trim();
+                var avatarImg = p.sellerAvatar ? '<img src="' + p.sellerAvatar + '" class="seller-mini-avatar" alt="" onerror="this.style.display=\'none\'">' : '';
+                html += '<div class="product-card" onclick="window.location.href=\'/product/' + p.id + '\'" style="cursor:pointer;">' +
+                    '<div class="product-image">' +
+                        (img ? '<img src="' + img + '" loading="lazy" alt="">' : '<div class="image-placeholder"><i class="fas fa-image"></i></div>') +
+                        '<div class="product-badge ' + (p.status === 'sold' ? 'sold' : '') + '" style="' + (p.status !== 'sold' ? 'background:rgba(45,138,86,0.85);color:#fff;' : '') + '">' + (p.status === 'sold' ? '已售出' : '在售') + '</div>' +
+                    '</div>' +
+                    '<div class="product-info"><h3 class="product-title">' + p.name + '</h3>' +
+                        '<p class="product-category">' + (p.category || '') + '</p>' +
+                        '<div class="product-price-row"><span class="product-price">¥' + Number(p.secondHandPrice||0).toLocaleString() + '</span>' +
+                        (p.originalPrice ? '<span class="product-price-original">¥' + Number(p.originalPrice).toLocaleString() + '</span>' : '') + '</div>' +
+                    '</div></div>';
+            });
+            html += '</div>';
+            el.innerHTML = html;
+        });
+    }
+    </script>
+</body>
+</html>

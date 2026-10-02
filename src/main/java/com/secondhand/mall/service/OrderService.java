@@ -10,11 +10,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class OrderService {
+
+    private static final Map<String, List<String>> VALID_TRANSITIONS = Map.of(
+        "unshipped", List.of("shipped"),
+        "shipped",   List.of("received"),
+        "received",  List.of("completed")
+    );
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
@@ -32,6 +41,15 @@ public class OrderService {
                              String productName, String category, String imageUrl,
                              String receiverName, String receiverPhone, String receiverAddress,
                              String paymentMethod) {
+        return createOrder(buyerUsername, productId, orderPrice, productName, category, imageUrl,
+                receiverName, receiverPhone, receiverAddress, paymentMethod, 1);
+    }
+
+    @Transactional
+    public Order createOrder(String buyerUsername, Long productId, BigDecimal orderPrice,
+                             String productName, String category, String imageUrl,
+                             String receiverName, String receiverPhone, String receiverAddress,
+                             String paymentMethod, int quantity) {
         Product product = productRepository.findByIdForUpdate(productId)
                 .orElseThrow(() -> new RuntimeException("商品不存在"));
 
@@ -48,7 +66,7 @@ public class OrderService {
             throw new RuntimeException("不能购买自己发布的商品");
         }
 
-        User buyer = userRepository.findByUsername(buyerUsername)
+        User buyer = userRepository.findByUsernameForUpdate(buyerUsername)
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
 
         if (buyer.getBalance().compareTo(orderPrice) < 0) {
@@ -64,7 +82,7 @@ public class OrderService {
         buyer.setBalance(buyer.getBalance().subtract(price));
         userRepository.save(buyer);
 
-        // 库存递减（复用 markAsSold 逻辑）
+        // 库存递减
         if (qty <= 1) {
             product.setQuantity(0);
             product.setStatus("sold");
@@ -75,7 +93,7 @@ public class OrderService {
 
         // 增加卖家余额
         if (product.getSellerUsername() != null && !product.getSellerUsername().isEmpty()) {
-            userRepository.findByUsername(product.getSellerUsername()).ifPresent(seller -> {
+            userRepository.findByUsernameForUpdate(product.getSellerUsername()).ifPresent(seller -> {
                 seller.setBalance(seller.getBalance().add(price));
                 userRepository.save(seller);
             });
@@ -83,11 +101,13 @@ public class OrderService {
 
         // 创建订单
         Order order = new Order();
+        order.setOrderNumber(generateOrderNumber());
         order.setUsername(buyerUsername);
         order.setProductId(productId);
         order.setSellerUsername(product.getSellerUsername());
         order.setProductName(productName);
         order.setProductPrice(price);
+        order.setQuantity(quantity > 0 ? quantity : 1);
         order.setCategory(category);
         order.setImageUrl(imageUrl);
         order.setReceiverName(receiverName);
@@ -113,17 +133,22 @@ public class OrderService {
         }
 
         // 退还买家余额
-        User buyer = userRepository.findByUsername(order.getUsername())
+        User buyer = userRepository.findByUsernameForUpdate(order.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
         buyer.setBalance(buyer.getBalance().add(order.getProductPrice()));
         userRepository.save(buyer);
 
         // 扣回卖家余额
         if (order.getSellerUsername() != null && !order.getSellerUsername().isEmpty()) {
-            userRepository.findByUsername(order.getSellerUsername()).ifPresent(seller -> {
-                seller.setBalance(seller.getBalance().subtract(order.getProductPrice()));
-                userRepository.save(seller);
-            });
+            User seller = userRepository.findByUsernameForUpdate(order.getSellerUsername())
+                    .orElseThrow(() -> new RuntimeException("卖家不存在"));
+
+            if (seller.getBalance().compareTo(order.getProductPrice()) < 0) {
+                throw new RuntimeException("卖家余额不足，无法退款。请联系管理员处理。");
+            }
+
+            seller.setBalance(seller.getBalance().subtract(order.getProductPrice()));
+            userRepository.save(seller);
         }
 
         // 恢复商品库存
@@ -166,19 +191,29 @@ public class OrderService {
     }
 
     public List<Order> getSellerOrders(String sellerUsername, String status) {
-        List<Product> sellerProducts = productRepository.findBySellerUsername(sellerUsername);
-        List<Long> productIds = sellerProducts.stream().map(Product::getId).toList();
-
-        if (productIds.isEmpty()) {
-            return List.of();
-        }
-
         if (status != null && !status.isEmpty() && !"all".equals(status)) {
-            return orderRepository.findByProductIdInAndStatusOrderByCreatedAtDesc(productIds, status);
+            return orderRepository.findBySellerUsernameAndStatusOrderByCreatedAtDesc(sellerUsername, status);
         }
-        return orderRepository.findByProductIdInOrderByCreatedAtDesc(productIds);
+        return orderRepository.findBySellerUsernameOrderByCreatedAtDesc(sellerUsername);
     }
 
+    /**
+     * 获取订单详情，需校验当前用户是否是买家或卖家
+     */
+    public Optional<Order> getOrderById(Long id, String currentUsername) {
+        Optional<Order> opt = orderRepository.findById(id);
+        opt.ifPresent(order -> {
+            if (!order.getUsername().equals(currentUsername) &&
+                !order.getSellerUsername().equals(currentUsername)) {
+                throw new RuntimeException("无权查看此订单");
+            }
+        });
+        return opt;
+    }
+
+    /**
+     * 获取订单详情（无权限校验，供 admin 使用）
+     */
     public Optional<Order> getOrderById(Long id) {
         return orderRepository.findById(id);
     }
@@ -187,18 +222,22 @@ public class OrderService {
         return updateOrderStatus(id, status, null, currentUsername);
     }
 
+    @Transactional
     public Order updateOrderStatus(Long id, String status, String trackingNumber, String currentUsername) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("订单不存在"));
 
+        // 验证状态流转合法性
+        if (!isValidTransition(order.getStatus(), status)) {
+            throw new RuntimeException("非法状态流转: " + order.getStatus() + " → " + status);
+        }
+
         // 验证权限
-        if ("shipped".equals(status) || "unshipped".equals(status)) {
-            // 卖家操作
+        if ("shipped".equals(status)) {
             if (!order.getSellerUsername().equals(currentUsername)) {
                 throw new RuntimeException("无权操作此订单");
             }
         } else if ("received".equals(status) || "completed".equals(status)) {
-            // 买家操作
             if (!order.getUsername().equals(currentUsername)) {
                 throw new RuntimeException("无权操作此订单");
             }
@@ -220,10 +259,39 @@ public class OrderService {
             throw new RuntimeException("无权删除此订单");
         }
 
+        if (!"completed".equals(order.getStatus()) &&
+            !"cancelled".equals(order.getStatus())) {
+            throw new RuntimeException("只能删除已完成或已取消的订单");
+        }
+
         orderRepository.delete(order);
     }
 
     public long getOrderCount() {
         return orderRepository.count();
+    }
+
+    public long getBuyerActiveOrderCount(String username) {
+        return orderRepository.countBuyerActiveOrders(username);
+    }
+
+    public long getSellerPendingOrderCount(String username) {
+        return orderRepository.countSellerPendingOrders(username);
+    }
+
+    private boolean isValidTransition(String currentStatus, String newStatus) {
+        return VALID_TRANSITIONS
+            .getOrDefault(currentStatus, List.of())
+            .contains(newStatus);
+    }
+
+    private String generateOrderNumber() {
+        for (int i = 0; i < 10; i++) {
+            String num = String.valueOf(100000 + ThreadLocalRandom.current().nextInt(900000));
+            if (!orderRepository.existsByOrderNumber(num)) {
+                return num;
+            }
+        }
+        return String.valueOf(System.currentTimeMillis() % 1000000);
     }
 }

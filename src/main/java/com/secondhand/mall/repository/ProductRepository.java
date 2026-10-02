@@ -2,6 +2,8 @@ package com.secondhand.mall.repository;
 
 import com.secondhand.mall.entity.Product;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -26,10 +28,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     List<Product> findByStatusAndCategoryOrderByCreatedAtDesc(String status, String category);
 
     @Query("SELECT p FROM Product p WHERE p.status = :status AND p.category = :category AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice")
-    List<Product> findByCategoryAndPriceRange(@Param("status") String status, @Param("category") String category, @Param("minPrice") double minPrice, @Param("maxPrice") double maxPrice);
+    List<Product> findByCategoryAndPriceRange(@Param("status") String status, @Param("category") String category, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice);
 
     @Query("SELECT p FROM Product p WHERE p.status = :status AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice")
-    List<Product> findByPriceRange(@Param("status") String status, @Param("minPrice") double minPrice, @Param("maxPrice") double maxPrice);
+    List<Product> findByPriceRange(@Param("status") String status, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice);
 
     @Query("SELECT p FROM Product p WHERE p.status = :status AND p.category = :category AND p.itemCondition = :condition")
     List<Product> findByCategoryAndCondition(@Param("status") String status, @Param("category") String category, @Param("condition") String condition);
@@ -38,8 +40,26 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     List<Product> findByCondition(@Param("status") String status, @Param("condition") String condition);
 
     @Query("SELECT p FROM Product p WHERE p.status = :status AND p.category = :category AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice AND p.itemCondition = :condition")
-    List<Product> findByCategoryAndPriceRangeAndCondition(@Param("status") String status, @Param("category") String category, @Param("minPrice") double minPrice, @Param("maxPrice") double maxPrice, @Param("condition") String condition);
+    List<Product> findByCategoryAndPriceRangeAndCondition(@Param("status") String status, @Param("category") String category, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice, @Param("condition") String condition);
 
     @Query("SELECT p FROM Product p WHERE p.status = :status AND p.secondHandPrice >= :minPrice AND p.secondHandPrice <= :maxPrice AND p.itemCondition = :condition")
-    List<Product> findByPriceRangeAndCondition(@Param("status") String status, @Param("minPrice") double minPrice, @Param("maxPrice") double maxPrice, @Param("condition") String condition);
+    List<Product> findByPriceRangeAndCondition(@Param("status") String status, @Param("minPrice") java.math.BigDecimal minPrice, @Param("maxPrice") java.math.BigDecimal maxPrice, @Param("condition") String condition);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND p.name LIKE %:name%")
+    List<Product> searchActiveByName(@Param("name") String name);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' ORDER BY p.createdAt DESC")
+    List<Product> findAllActiveOrderByNewest();
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' ORDER BY p.secondHandPrice ASC")
+    List<Product> findAllActiveOrderByPriceAsc();
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' ORDER BY p.secondHandPrice DESC")
+    List<Product> findAllActiveOrderByPriceDesc();
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active'")
+    Page<Product> findAllActive(Pageable pageable);
+
+    @Query("SELECT p FROM Product p WHERE p.status = 'active' AND p.name LIKE %:name%")
+    Page<Product> searchActiveByName(@Param("name") String name, Pageable pageable);
 }

@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品详情 - 优品汇</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">跳到主要内容</a>
+    <header class="header">
+        <nav class="nav-container">
+            <div class="logo">
+                <a href="/">
+                    <div class="logo-icon"><i class="fas fa-gem"></i></div>
+                    <span class="logo-text">优品汇</span>
+                </a>
+            </div>
+            <div class="search-bar">
+                <form action="/search" method="GET">
+                    <input type="text" name="q" placeholder="搜索优质二手商品..." class="search-input">
+                    <button type="submit" class="search-btn" aria-label="搜索"><i class="fas fa-search"></i></button>
+                </form>
+            </div>
+            <div class="nav-actions">
+                <th:block th:if="${isLoggedIn}">
+                    <a href="/cart" class="btn btn-ghost" aria-label="购物车" style="position:relative;"><i class="fas fa-shopping-cart"></i><span class="cart-count-badge" style="display:none">0</span></a>
+                    <a href="/upload" class="btn btn-outline"><i class="fas fa-plus"></i> 发布</a>
+                    <div class="user-dropdown" style="position:relative;">
+                        <button class="btn btn-ghost user-menu-btn" style="gap:8px;">
+                            <img src="/user-avatar/default.jpg" style="width:30px;height:30px;border-radius:50%;object-fit:cover;" onerror="this.src='/user-avatar/default.jpg'">
+                            <span style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" th:text="${sessionNickname != null ? sessionNickname : sessionUsername}">用户</span>
+                            <i class="fas fa-chevron-down" style="font-size:10px;"></i>
+                        </button>
+                    </div>
+                </th:block>
+                <th:block th:unless="${isLoggedIn}">
+                    <a href="/login" class="btn btn-outline">登录</a>
+                    <a href="/login" class="btn btn-accent">注册</a>
+                </th:block>
+            </div>
+        </nav>
+    </header>
+
+    <section class="category-bar">
+        <div class="category-container">
+            <a href="/category/全部" class="category-item">全部</a>
+            <a href="/category/手机" class="category-item">手机</a>
+            <a href="/category/笔记本电脑" class="category-item">笔记本电脑</a>
+            <a href="/category/耳机" class="category-item">耳机</a>
+            <a href="/category/相机" class="category-item">相机</a>
+            <a href="/category/手机壳" class="category-item">手机壳</a>
+            <a href="/category/空调" class="category-item">空调</a>
+            <a href="/category/冰箱" class="category-item">冰箱</a>
+            <a href="/category/半身裙" class="category-item">半身裙</a>
+            <a href="/category/其他" class="category-item">其他</a>
+        </div>
+    </section>
+
+    <main class="main-content" id="main-content">
+        <div class="product-detail-page">
+            <div class="product-main">
+                <div class="product-gallery">
+                    <div class="gallery-main" style="position:relative;">
+                        <img id="productImage" style="display:none" alt="商品图片">
+                        <div class="image-placeholder" id="imagePlaceholder"><i class="fas fa-image"></i></div>
+                        <!-- 左右箭头 -->
+                        <button id="galleryPrev" class="gallery-arrow gallery-arrow-left" style="display:none;" onclick="switchImage(-1)" aria-label="上一张图片"><i class="fas fa-chevron-left"></i></button>
+                        <button id="galleryNext" class="gallery-arrow gallery-arrow-right" style="display:none;" onclick="switchImage(1)" aria-label="下一张图片"><i class="fas fa-chevron-right"></i></button>
+                        <!-- 图片计数器 -->
+                        <div id="galleryCounter" class="gallery-counter" style="display:none;">1 / 1</div>
+                    </div>
+                    <div id="thumbnailStrip" style="display:flex;gap:8px;margin-top:12px;overflow-x:auto;"></div>
+                    <div class="sold-watermark" id="soldWatermark" style="display:none;">SOLD</div>
+                </div>
+
+                <div class="product-info-detail">
+                    <span class="product-status-badge active" id="productStatus">在售</span>
+                    <h1 id="productName">加载中...</h1>
+                    <div class="price-section">
+                        <span class="current-price" id="currentPrice">¥0</span>
+                        <span class="original-price" id="originalPrice">原价 ¥0</span>
+                    </div>
+                    <div class="product-meta">
+                        <div class="meta-item"><span class="meta-label">分类</span><span class="meta-value" id="productCategory">--</span></div>
+                        <div class="meta-item"><span class="meta-label">成色</span><span class="meta-value" id="productCondition">--</span></div>
+                        <div class="meta-item"><span class="meta-label">库存</span><span class="meta-value" id="productQuantity">--</span></div>
+                        <div class="meta-item"><span class="meta-label">发布时间</span><span class="meta-value" id="productTime">--</span></div>
+                    </div>
+                    <div class="seller-card" id="sellerCard" style="cursor:pointer;" onclick="contactSeller()">
+                        <img src="/user-avatar/default.jpg" class="seller-avatar" id="sellerAvatar" alt="卖家头像">
+                        <div class="seller-info">
+                            <div class="seller-name" id="sellerName">卖家</div>
+                            <div class="seller-contact" id="sellerPhone">暂无联系方式</div>
+                        </div>
+                        <div class="seller-chat-hint"><i class="fas fa-comment-dots"></i> 联系卖家</div>
+                    </div>
+                    <div class="product-actions">
+                        <button class="btn btn-accent ripple" id="buyNowBtn" onclick="buyNow()"><i class="fas fa-bolt"></i> 立即购买</button>
+                        <button class="btn btn-outline ripple" id="addToCartBtn"><i class="fas fa-shopping-cart"></i> 加入购物车</button>
+                        <button class="btn btn-outline ripple" id="favBtn" onclick="toggleFav()"><i class="far fa-heart"></i> 收藏</button>
+                        <button class="btn btn-outline ripple" id="deleteProductBtn" style="display:none;color:var(--color-error);border-color:var(--color-error);" onclick="deleteProduct()"><i class="fas fa-trash-alt"></i> 删除商品</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-section">
+                <h3><i class="fas fa-align-left"></i> 商品描述</h3>
+                <p id="productDescription">暂无描述</p>
+            </div>
+
+            <div class="content-section">
+                <h3><i class="fas fa-comments"></i> 用户评论 <span class="count" id="commentCount">(0)</span></h3>
+                <div class="comment-form" id="commentFormArea">
+                    <textarea id="commentInput" placeholder="发表你的看法..."></textarea>
+                    <div class="comment-form-footer">
+                        <button class="btn btn-accent btn-sm ripple" onclick="submitComment()">发表评论</button>
+                    </div>
+                </div>
+                <div class="comments-list" id="commentsList">
+                    <div class="empty-state"><i class="fas fa-comment-dots"></i><p>暂无评论，快来发表第一条评论吧</p></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-section"><h4>优品汇</h4><p>致力于打造高端二手交易平台。</p></div>
+            <div class="footer-section"><h4>服务</h4><ul><li><a href="#">帮助中心</a></li><li><a href="#">交易保障</a></li></ul></div>
+            <div class="footer-section"><h4>关注</h4><div class="social-links"><a href="#"><i class="fab fa-weixin"></i></a><a href="#"><i class="fab fa-weibo"></i></a></div></div>
+        </div>
+        <div class="footer-bottom"><p>&copy; 2026 优品汇 All Rights Reserved</p></div>
+    </footer>
+
+    <script src="/js/main.js"></script>
+    <script th:inline="javascript">
+    var productId = /*[[${productId}]]*/ 0;
+    var currentProduct = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadProduct();
+        loadComments();
+        checkFavStatus();
+
+        document.getElementById('addToCartBtn').addEventListener('click', function() { addToCart(); });
+    });
+
+    function contactSeller() {
+        if (!App.getUser()) {
+            window.location.href = '/login';
+            return;
+        }
+        if (currentProduct && App.getUser().username === currentProduct.sellerUsername) {
+            App.toast('不能和自己聊天', 'warning');
+            return;
+        }
+        App.api('/api/chat/room', { method: 'POST', body: { productId: productId } }).then(function(d) {
+            if (d.success) {
+                if (d.exists) {
+                    // 聊天室已存在，直接跳转
+                    window.location.href = '/messages?roomId=' + d.roomId;
+                } else {
+                    // 聊天室不存在，跳转到聊天页面并传递卖家信息
+                    var params = new URLSearchParams({
+                        sellerUsername: d.sellerUsername,
+                        sellerNickname: d.sellerNickname || '',
+                        sellerAvatar: d.sellerAvatar || '',
+                        productId: productId
+                    });
+                    window.location.href = '/messages?' + params.toString();
+                }
+            } else {
+                App.toast(d.message, 'error');
+            }
+        }).catch(function() {});
+    }
+
+    function loadProduct() {
+        App.api('/api/products/' + productId).then(function(data) {
+            if (data.success) {
+                currentProduct = data.product;
+                var p = currentProduct;
+                document.getElementById('productName').textContent = p.name || '未知商品';
+                document.getElementById('currentPrice').textContent = '¥' + Number(p.secondHandPrice || 0).toLocaleString();
+                document.getElementById('originalPrice').textContent = '原价 ¥' + Number(p.originalPrice || 0).toLocaleString();
+                document.getElementById('productCategory').textContent = p.category || '--';
+                document.getElementById('productCondition').textContent = p.itemCondition || '--';
+                var time = p.createdAt;
+                if (time && typeof time === 'string') {
+                    time = time.replace('T', ' ').substring(0, 16);
+                }
+                document.getElementById('productTime').textContent = time || '--';
+                document.getElementById('productQuantity').textContent = (p.quantity != null ? p.quantity : 1) + ' 件';
+                document.getElementById('sellerName').textContent = p.sellerName || '匿名';
+                document.getElementById('sellerPhone').textContent = p.sellerPhone || '暂无联系方式';
+                document.getElementById('productDescription').textContent = p.description || '暂无描述';
+
+                // 多图展示 + 轮播
+                var imageUrls = [];
+                if (p.imageUrl && p.imageUrl !== 'null' && p.imageUrl !== '') {
+                    imageUrls = p.imageUrl.split(',').map(function(u) { return u.trim(); }).filter(function(u) { return u.length > 0; });
+                }
+                window._galleryImages = imageUrls;
+                window._galleryIndex = 0;
+                window._galleryCycles = 0;
+                window._galleryTimer = null;
+
+                if (imageUrls.length > 0) {
+                    showImage(0);
+                    // 显示箭头
+                    if (imageUrls.length > 1) {
+                        document.getElementById('galleryPrev').style.display = 'flex';
+                        document.getElementById('galleryNext').style.display = 'flex';
+                        document.getElementById('galleryCounter').style.display = 'block';
+                        startAutoAdvance();
+                    }
+                    // 缩略图条
+                    var strip = document.getElementById('thumbnailStrip');
+                    strip.innerHTML = '';
+                    imageUrls.forEach(function(url, i) {
+                        var thumb = document.createElement('img');
+                        thumb.src = url;
+                        thumb.className = 'gallery-thumb';
+                        thumb.dataset.idx = i;
+                        thumb.style.cssText = 'width:56px;height:56px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid ' + (i===0?'var(--color-accent-dark)':'transparent') + ';transition:all 0.2s;flex-shrink:0;';
+                        thumb.onclick = function() { stopAutoAdvance(); showImage(i); };
+                        strip.appendChild(thumb);
+                    });
+                }
+
+                if (p.status === 'sold') {
+                    document.getElementById('productStatus').textContent = '已售出';
+                    document.getElementById('productStatus').className = 'product-status-badge sold';
+                    document.getElementById('soldWatermark').style.display = 'block';
+                    var buyBtn = document.getElementById('buyNowBtn');
+                    var cartBtn = document.getElementById('addToCartBtn');
+                    if (buyBtn) { buyBtn.textContent = '已售出'; buyBtn.disabled = true; }
+                    if (cartBtn) { cartBtn.textContent = '已售出'; cartBtn.disabled = true; }
+                }
+
+                var user = App.getUser();
+                if (user && user.username === p.sellerUsername) {
+                    var buyBtn = document.getElementById('buyNowBtn');
+                    var cartBtn = document.getElementById('addToCartBtn');
+                    var delBtn = document.getElementById('deleteProductBtn');
+                    if (buyBtn) buyBtn.style.display = 'none';
+                    if (cartBtn) cartBtn.style.display = 'none';
+                    if (delBtn) delBtn.style.display = 'inline-flex';
+                }
+
+                // Seller avatar
+                if (p.sellerAvatar) {
+                    document.getElementById('sellerAvatar').src = p.sellerAvatar;
+                }
+            } else {
+                document.getElementById('productName').textContent = '商品不存在';
+            }
+        }).catch(function() {
+            document.getElementById('productName').textContent = '加载失败';
+        });
+    }
+
+    function loadComments() {
+        App.api('/api/products/' + productId + '/comments').then(function(data) {
+            if (data.success) {
+                var comments = data.comments;
+                document.getElementById('commentCount').textContent = '(' + comments.length + ')';
+                var list = document.getElementById('commentsList');
+                if (comments.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><i class="fas fa-comment-dots"></i><p>暂无评论，快来发表第一条评论吧</p></div>';
+                    return;
+                }
+                var user = App.getUser();
+                var html = '';
+                comments.forEach(function(c) {
+                    var time = c.createdAt;
+                    if (time && typeof time === 'string') { time = time.replace('T', ' ').substring(0, 16); }
+                    var canDelete = user && (user.username === c.userName || (currentProduct && user.username === currentProduct.sellerUsername));
+                    var delBtn = canDelete ? '<button class="comment-delete" onclick="deleteComment(' + c.id + ')"><i class="fas fa-trash-alt"></i></button>' : '';
+                    html += '<div class="comment-item">' +
+                        '<img src="' + (c.avatar || '/user-avatar/default.jpg') + '" class="comment-avatar" onerror="this.src=\'/user-avatar/default.jpg\'">' +
+                        '<div class="comment-body">' +
+                            '<div class="comment-header">' +
+                                '<span class="comment-user">' + (c.displayName || c.userName) + '</span>' +
+                                '<span class="comment-time">' + (time || '') + delBtn + '</span>' +
+                            '</div>' +
+                            '<div class="comment-content">' + c.content + '</div>' +
+                        '</div></div>';
+                });
+                list.innerHTML = html;
+            }
+        });
+    }
+
+    function submitComment() {
+        var user = App.getUser();
+        if (!user) { App.modal({ type: 'warning', title: '请先登录', message: '登录后才能发表评论', okText: '去登录', onOk: function() { window.location.href = '/login'; } }); return; }
+        var content = document.getElementById('commentInput').value.trim();
+        if (!content) { App.toast('请输入评论内容', 'warning'); return; }
+        App.api('/api/products/' + productId + '/comments', { method: 'POST', body: { content: content } })
+        .then(function(data) {
+            if (data.success) { document.getElementById('commentInput').value = ''; loadComments(); App.toast('评论成功', 'success'); }
+            else { App.toast(data.message, 'error'); }
+        });
+    }
+
+    function deleteComment(commentId) {
+        App.modal({ type: 'warning', title: '确认删除', message: '确定要删除这条评论吗？', okText: '删除',
+            onOk: function() {
+                App.api('/api/products/' + productId + '/comments/' + commentId, { method: 'DELETE' })
+                .then(function(data) {
+                    if (data.success) { loadComments(); App.toast('删除成功', 'success'); }
+                    else { App.toast(data.message, 'error'); }
+                });
+            }
+        });
+    }
+
+    function addToCart() {
+        var user = App.getUser();
+        if (!user) { App.modal({ type: 'warning', title: '请先登录', message: '登录后才能使用购物车', okText: '去登录', onOk: function() { window.location.href = '/login'; } }); return; }
+        App.api('/api/cart', { method: 'POST', body: { productId: productId } })
+        .then(function(data) {
+            if (data.success) { App.toast('已加入购物车', 'success'); App.updateSideNavBadge(); }
+            else { App.toast(data.message, 'error'); }
+        });
+    }
+
+    function buyNow() {
+        var user = App.getUser();
+        if (!user) { App.modal({ type: 'warning', title: '请先登录', message: '登录后才能购买', okText: '去登录', onOk: function() { window.location.href = '/login'; } }); return; }
+        sessionStorage.setItem('checkoutProductId', productId);
+        window.location.href = '/checkout';
+    }
+
+    function deleteProduct() {
+        App.modal({ type: 'warning', title: '删除商品', message: '确定要删除这个商品吗？删除后无法恢复。', okText: '确认删除', cancelText: '取消',
+            onOk: function() {
+                App.api('/api/products/' + productId, { method: 'DELETE' }).then(function(d) {
+                    if (d.success) { App.toast('商品已删除', 'success'); setTimeout(function() { window.history.back(); }, 600); }
+                    else { App.toast(d.message, 'error'); }
+                });
+            }
+        });
+    }
+
+    // ===== 收藏 =====
+    function toggleFav() {
+        var user = App.getUser();
+        if (!user) { App.modal({ type: 'warning', title: '请先登录', message: '登录后才能收藏', okText: '去登录', onOk: function() { window.location.href = '/login'; } }); return; }
+        App.api('/api/favorites/toggle', { method: 'POST', body: { productId: productId } }).then(function(d) {
+            if (d.success) {
+                App.toast(d.message, 'success');
+                updateFavBtn(d.favorited);
+            } else {
+                App.toast(d.message, 'error');
+            }
+        });
+    }
+
+    function updateFavBtn(favorited) {
+        var btn = document.getElementById('favBtn');
+        if (!btn) return;
+        if (favorited) {
+            btn.innerHTML = '<i class="fas fa-heart"></i> 已收藏';
+            btn.classList.add('fav-active');
+        } else {
+            btn.innerHTML = '<i class="far fa-heart"></i> 收藏';
+            btn.classList.remove('fav-active');
+        }
+    }
+
+    function checkFavStatus() {
+        var user = App.getUser();
+        if (!user) return;
+        App.api('/api/favorites/check/' + productId).then(function(d) {
+            if (d.success) updateFavBtn(d.favorited);
+        });
+    }
+
+    // ===== 图片轮播 =====
+    function showImage(idx) {
+        var urls = window._galleryImages;
+        if (!urls || urls.length === 0) return;
+        window._galleryIndex = idx;
+        document.getElementById('productImage').src = urls[idx];
+        document.getElementById('productImage').style.display = 'block';
+        document.getElementById('imagePlaceholder').style.display = 'none';
+        document.getElementById('galleryCounter').textContent = (idx + 1) + ' / ' + urls.length;
+        // 更新缩略图高亮
+        document.querySelectorAll('.gallery-thumb').forEach(function(t, i) {
+            t.style.borderColor = i === idx ? 'var(--color-accent-dark)' : 'transparent';
+        });
+    }
+
+    function switchImage(delta) {
+        var urls = window._galleryImages;
+        if (!urls || urls.length <= 1) return;
+        stopAutoAdvance();
+        var idx = window._galleryIndex + delta;
+        if (idx >= urls.length) idx = 0;
+        if (idx < 0) idx = urls.length - 1;
+        showImage(idx);
+    }
+
+    function startAutoAdvance() {
+        stopAutoAdvance();
+        window._galleryCycles = 0;
+        window._galleryTimer = setInterval(function() {
+            var urls = window._galleryImages;
+            if (!urls || urls.length <= 1) { stopAutoAdvance(); return; }
+            var next = window._galleryIndex + 1;
+            if (next >= urls.length) {
+                next = 0;
+                window._galleryCycles++;
+                if (window._galleryCycles >= 1) {
+                    stopAutoAdvance();
+                    return;
+                }
+            }
+            showImage(next);
+        }, 5000);
+    }
+
+    function stopAutoAdvance() {
+        if (window._galleryTimer) { clearInterval(window._galleryTimer); window._galleryTimer = null; }
+    }
+
+    // Clear timer when leaving page
+    window.addEventListener('pagehide', stopAutoAdvance);
+    window.addEventListener('beforeunload', stopAutoAdvance);
+    </script>
+</body>
+</html>

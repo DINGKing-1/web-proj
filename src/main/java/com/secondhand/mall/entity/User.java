@@ -42,12 +42,15 @@ public class User {
     @Column(length = 100)
     private String sessionId;
 
+    private LocalDateTime lastActiveTime;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (role == null) role = "user";
         if (balance == null) balance = new BigDecimal("10000.00");
         if (avatar == null) avatar = "/user-avatar/default.jpg";
+        if (lastActiveTime == null) lastActiveTime = LocalDateTime.now();
     }
 
     public User() {}
@@ -92,4 +95,7 @@ public class User {
 
     public String getSessionId() { return sessionId; }
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+
+    public LocalDateTime getLastActiveTime() { return lastActiveTime; }
+    public void setLastActiveTime(LocalDateTime lastActiveTime) { this.lastActiveTime = lastActiveTime; }
 }

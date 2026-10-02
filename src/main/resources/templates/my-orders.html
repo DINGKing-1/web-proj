@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的订单 - 优品汇</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">跳到主要内容</a>
+    <header class="header">
+        <nav class="nav-container">
+            <div class="logo"><a href="/"><div class="logo-icon"><i class="fas fa-gem"></i></div><span class="logo-text">优品汇</span></a></div>
+            <div class="search-bar"><form action="/search" method="GET"><input type="text" name="q" placeholder="搜索优质二手商品..." class="search-input"><button type="submit" class="search-btn" aria-label="搜索"><i class="fas fa-search"></i></button></form></div>
+            <div class="nav-actions">
+                <th:block th:if="${isLoggedIn}">
+                    <a href="/cart" class="btn btn-ghost" aria-label="购物车" style="position:relative;"><i class="fas fa-shopping-cart"></i><span class="cart-count-badge" style="display:none">0</span></a>
+                    <a href="/upload" class="btn btn-outline"><i class="fas fa-plus"></i> 发布</a>
+                    <div class="user-dropdown" style="position:relative;">
+                        <button class="btn btn-ghost user-menu-btn" style="gap:8px;">
+                            <img src="/user-avatar/default.jpg" style="width:30px;height:30px;border-radius:50%;object-fit:cover;" onerror="this.src='/user-avatar/default.jpg'">
+                            <span style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" th:text="${sessionNickname != null ? sessionNickname : sessionUsername}">用户</span>
+                            <i class="fas fa-chevron-down" style="font-size:10px;"></i>
+                        </button>
+                    </div>
+                </th:block>
+                <th:block th:unless="${isLoggedIn}">
+                    <a href="/login" class="btn btn-outline">登录</a>
+                    <a href="/login" class="btn btn-accent">注册</a>
+                </th:block>
+            </div>
+        </nav>
+    </header>
+
+    <section class="category-bar">
+        <div class="category-container">
+            <a href="/category/全部" class="category-item">全部</a>
+            <a href="/category/手机" class="category-item">手机</a>
+            <a href="/category/笔记本电脑" class="category-item">笔记本电脑</a>
+            <a href="/category/耳机" class="category-item">耳机</a>
+            <a href="/category/相机" class="category-item">相机</a>
+            <a href="/category/手机壳" class="category-item">手机壳</a>
+            <a href="/category/空调" class="category-item">空调</a>
+            <a href="/category/冰箱" class="category-item">冰箱</a>
+            <a href="/category/半身裙" class="category-item">半身裙</a>
+            <a href="/category/其他" class="category-item">其他</a>
+        </div>
+    </section>
+
+    <main class="main-content" id="main-content">
+        <div class="page-container">
+            <div class="page-header">
+                <h1><i class="fas fa-receipt"></i> 我的订单</h1>
+                <p>查看订单详情、物流跟踪和订单状态</p>
+            </div>
+
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchOrderTab('buyer')">我买到的</button>
+                <button class="tab-btn" onclick="switchOrderTab('seller')">我卖出的</button>
+            </div>
+
+            <div id="ordersContainer">
+                <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>加载中...</p></div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-section"><h4>优品汇</h4><p>致力于打造高端二手交易平台。</p></div>
+        </div>
+        <div class="footer-bottom"><p>&copy; 2026 优品汇 All Rights Reserved</p></div>
+    </footer>
+
+    <script src="/js/main.js"></script>
+    <script>
+    var currentTab = 'buyer';
+    document.addEventListener('DOMContentLoaded', function() {
+        if (!App.getUser()) { window.location.href = '/login'; return; }
+        loadOrders();
+    });
+
+    function switchOrderTab(tab) {
+        currentTab = tab;
+        document.querySelectorAll('.tab-btn').forEach(function(b, i) { b.classList.toggle('active', (i===0 && tab==='buyer') || (i===1 && tab==='seller')); });
+        loadOrders();
+    }
+
+    function loadOrders() {
+        var url = currentTab === 'buyer' ? '/api/orders' : '/api/seller/orders';
+        App.api(url).then(function(data) {
+            var el = document.getElementById('ordersContainer');
+            if (!data.success || !data.orders || data.orders.length === 0) {
+                el.innerHTML = '<div class="empty-state"><i class="fas fa-receipt"></i><p>暂无' + (currentTab === 'buyer' ? '买到的' : '卖出的') + '订单</p><a href="/" class="btn btn-accent" style="margin-top:16px;">去逛逛</a></div>';
+                return;
+            }
+            var statusMap = {unshipped:'未发货',shipped:'运输中',received:'待收货',completed:'已完成',cancelled:'已取消'};
+            var statusColorMap = {unshipped:'#ff9500',shipped:'#007aff',received:'#34c759',completed:'#34c759',cancelled:'#8e8e93'};
+            var html = '';
+            data.orders.forEach(function(o) {
+                var st = statusMap[o.status] || o.status;
+                var stColor = statusColorMap[o.status] || '#8e8e93';
+                var orderNo = o.orderNumber || ('#' + o.id);
+                var qty = o.quantity || 1;
+                var trackingHtml = '';
+                if (o.trackingNumber) {
+                    trackingHtml = '<div class="tracking-info" onclick="event.stopPropagation();"><i class="fas fa-truck"></i> 快递单号: ' + o.trackingNumber + '</div>';
+                }
+                var actions = '';
+                if (currentTab === 'seller' && o.status === 'unshipped') {
+                    actions = '<div class="tracking-input-group" onclick="event.stopPropagation();">' +
+                        '<input type="text" id="track-' + o.id + '" placeholder="快递单号..." style="flex:1;padding:6px 12px;font-size:12px;border:1px solid var(--color-border);border-radius:50px;">' +
+                        '<button class="btn btn-accent btn-sm" onclick="shipOrder(' + o.id + ')">发货</button></div>';
+                }
+                if (currentTab === 'buyer' && o.status === 'unshipped') {
+                    actions = '<button class="btn btn-outline btn-sm" style="color:var(--color-error);border-color:var(--color-error);" onclick="event.stopPropagation();cancelOrder(' + o.id + ')">取消订单</button>';
+                }
+                if (currentTab === 'buyer' && o.status === 'shipped') {
+                    actions = '<button class="btn btn-accent btn-sm" onclick="event.stopPropagation();receiveOrder(' + o.id + ')">确认收货</button>';
+                }
+                if (currentTab === 'buyer' && o.status === 'received') {
+                    actions = '<button class="btn btn-accent btn-sm" onclick="event.stopPropagation();completeOrder(' + o.id + ')">确认完成</button>';
+                }
+                var img = o.imageUrl || '';
+                if (img.indexOf(',') > -1) img = img.split(',')[0].trim();
+                var imgHtml = img ? '<img src="' + img + '" class="order-card-image" onerror="this.style.display=\'none\'" alt="">' : '<div class="order-card-image" style="background:var(--color-bg);display:flex;align-items:center;justify-content:center;color:var(--color-border);"><i class="fas fa-image"></i></div>';
+
+                var personInfo = currentTab === 'seller'
+                    ? '买家: ' + (o.receiverName||'') + ' · ' + (o.receiverPhone||'')
+                    : '收货人: ' + (o.receiverName||'');
+
+                html += '<div class="order-card order-card-clickable" onclick="window.location.href=\'/order/' + o.id + '\'">' +
+                    '<div class="order-card-header">' +
+                        '<span class="order-id">' + orderNo + '</span>' +
+                        '<span class="order-status" style="background:' + stColor + '20;color:' + stColor + ';padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;">' + st + '</span>' +
+                    '</div>' +
+                    '<div class="order-card-body">' +
+                        imgHtml +
+                        '<div class="order-card-info"><h4>' + o.productName + '</h4>' +
+                            '<div class="price">¥' + Number(o.productPrice || 0).toLocaleString() + ' × ' + qty + '</div>' +
+                            '<div style="font-size:12px;color:var(--color-text-light);margin-top:4px;">' +
+                                personInfo +
+                            '</div>' +
+                            '<div style="font-size:12px;color:var(--color-text-light);">' +
+                                (o.createdAt ? o.createdAt.substring(0,10) : '') +
+                            '</div>' +
+                            trackingHtml +
+                            '<div style="margin-top:6px;">' + actions + '</div>' +
+                        '</div></div></div>';
+            });
+            el.innerHTML = html;
+        });
+    }
+
+    function shipOrder(id) {
+        var trackInput = document.getElementById('track-' + id);
+        var trackingNumber = trackInput ? trackInput.value.trim() : '';
+        if (!trackingNumber) { App.toast('请输入快递单号', 'warning'); return; }
+        App.api('/api/orders/' + id, { method: 'PUT', body: { status: 'shipped', trackingNumber: trackingNumber } }).then(function(d) {
+            if (d.success) { App.toast('已发货', 'success'); loadOrders(); }
+            else { App.toast(d.message, 'error'); }
+        });
+    }
+    function receiveOrder(id) {
+        App.modal({ title: '确认收货', message: '确认已收到该商品？', type: 'info', okText: '确认收货', cancelText: '取消',
+            onOk: function() {
+                App.api('/api/orders/' + id, { method: 'PUT', body: { status: 'received' } }).then(function(d) {
+                    if (d.success) { App.toast('已确认收货', 'success'); loadOrders(); }
+                    else { App.toast(d.message, 'error'); }
+                });
+            }
+        });
+    }
+    function cancelOrder(id) {
+        App.modal({ title: '取消订单', message: '确定要取消该订单吗？余额将退还到您的账户。', type: 'warning', okText: '确认取消', cancelText: '返回',
+            onOk: function() {
+                App.api('/api/orders/' + id + '/cancel', { method: 'POST' }).then(function(d) {
+                    if (d.success) { App.toast('订单已取消，余额已退还', 'success'); loadOrders(); }
+                    else { App.toast(d.message, 'error'); }
+                });
+            }
+        });
+    }
+    function completeOrder(id) {
+        App.modal({ title: '确认完成', message: '确认该订单已完成？', type: 'info', okText: '确认完成', cancelText: '取消',
+            onOk: function() {
+                App.api('/api/orders/' + id + '/complete', { method: 'POST' }).then(function(d) {
+                    if (d.success) { App.toast('订单已完成', 'success'); loadOrders(); }
+                    else { App.toast(d.message, 'error'); }
+                });
+            }
+        });
+    }
+    </script>
+</body>
+</html>

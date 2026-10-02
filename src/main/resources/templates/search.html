@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${query != null ? query + ' - 搜索结果 - 优品汇' : '搜索 - 优品汇'}">搜索 - 优品汇</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .pagination { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 32px; padding: 16px 0; }
+        .pagination button { min-width: 36px; height: 36px; padding: 0 10px; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; background: rgba(255,255,255,0.8); color: var(--color-text); font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+        .pagination button:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent-dark); background: rgba(184,134,11,0.05); }
+        .pagination button.active { background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dark)); color: white; border-color: transparent; box-shadow: 0 2px 8px rgba(184,134,11,0.25); }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination .page-input { display: flex; align-items: center; gap: 6px; margin: 0 8px; }
+        .pagination .page-input span { font-size: 13px; color: var(--color-text-secondary); }
+        .pagination .page-input input { width: 48px; height: 32px; text-align: center; border: 1px solid rgba(0,0,0,0.12); border-radius: 6px; font-size: 14px; background: rgba(255,255,255,0.8); }
+        .pagination .page-input input:focus { outline: none; border-color: var(--color-accent); }
+        .page-info { text-align: center; margin-top: 12px; font-size: 13px; color: var(--color-text-light); }
+        .search-keyword { display: inline-block; background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dark)); color: white; padding: 4px 12px; border-radius: 20px; font-size: 14px; margin-left: 8px; }
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">跳到主要内容</a>
+    <header class="header">
+        <nav class="nav-container">
+            <div class="logo"><a href="/"><div class="logo-icon"><i class="fas fa-gem"></i></div><span class="logo-text">优品汇</span></a></div>
+            <div class="search-bar">
+                <form id="searchForm" action="/search" method="GET">
+                    <input type="text" name="q" id="searchInput" placeholder="搜索优质二手商品..." class="search-input" th:value="${query}">
+                    <button type="submit" class="search-btn" aria-label="搜索"><i class="fas fa-search"></i></button>
+                </form>
+            </div>
+            <div class="nav-actions">
+                <th:block th:if="${isLoggedIn}">
+                    <a href="/cart" class="btn btn-ghost" aria-label="购物车" style="position:relative;"><i class="fas fa-shopping-cart"></i><span class="cart-count-badge" style="display:none">0</span></a>
+                    <a href="/upload" class="btn btn-outline"><i class="fas fa-plus"></i> 发布</a>
+                    <div class="user-dropdown" style="position:relative;">
+                        <button class="btn btn-ghost user-menu-btn" style="gap:8px;">
+                            <img src="/user-avatar/default.jpg" style="width:30px;height:30px;border-radius:50%;object-fit:cover;" onerror="this.src='/user-avatar/default.jpg'">
+                            <span style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" th:text="${sessionNickname != null ? sessionNickname : sessionUsername}">用户</span>
+                            <i class="fas fa-chevron-down" style="font-size:10px;"></i>
+                        </button>
+                    </div>
+                </th:block>
+                <th:block th:unless="${isLoggedIn}">
+                    <a href="/login" class="btn btn-outline">登录</a>
+                    <a href="/login" class="btn btn-accent">注册</a>
+                </th:block>
+            </div>
+        </nav>
+    </header>
+    <section class="category-bar">
+        <div class="category-container">
+            <a href="/category/全部" class="category-item">全部</a>
+            <a href="/category/手机" class="category-item">手机</a>
+            <a href="/category/笔记本电脑" class="category-item">笔记本电脑</a>
+            <a href="/category/耳机" class="category-item">耳机</a>
+            <a href="/category/相机" class="category-item">相机</a>
+            <a href="/category/手机壳" class="category-item">手机壳</a>
+            <a href="/category/空调" class="category-item">空调</a>
+            <a href="/category/冰箱" class="category-item">冰箱</a>
+            <a href="/category/半身裙" class="category-item">半身裙</a>
+            <a href="/category/其他" class="category-item">其他</a>
+        </div>
+    </section>
+    <main class="main-content" id="main-content">
+        <div class="page-container">
+            <div class="page-header">
+                <h1>
+                    <i class="fas fa-search" style="margin-right:8px;color:var(--color-accent);"></i>
+                    搜索结果
+                    <span class="search-keyword" th:if="${query != null and !query.isEmpty()}" th:text="${query}"></span>
+                </h1>
+                <p id="productCount">加载中...</p>
+            </div>
+
+            <div class="filter-panel">
+                <div class="filter-group">
+                    <label class="filter-label">排序</label>
+                    <select id="sortBy" class="filter-select" onchange="applyFilters()">
+                        <option value="newest">最新发布</option>
+                        <option value="price-asc">价格从低到高</option>
+                        <option value="price-desc">价格从高到低</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">价格区间</label>
+                    <div class="price-range-inputs">
+                        <input type="number" id="minPrice" class="filter-input" placeholder="最低价" min="0">
+                        <span class="price-sep">-</span>
+                        <input type="number" id="maxPrice" class="filter-input" placeholder="最高价" min="0">
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">成色</label>
+                    <select id="conditionFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="">全部成色</option>
+                        <option value="全新">全新</option>
+                        <option value="几乎全新">几乎全新</option>
+                        <option value="轻微使用">轻微使用</option>
+                        <option value="明显使用">明显使用</option>
+                        <option value="重度使用">重度使用</option>
+                    </select>
+                </div>
+                <div class="filter-group" style="align-self:flex-end;">
+                    <button class="btn btn-accent btn-sm" onclick="applyFilters()"><i class="fas fa-search"></i> 筛选</button>
+                    <button class="btn btn-ghost btn-sm" onclick="resetFilters()">重置</button>
+                </div>
+            </div>
+
+            <div class="product-grid stagger-children" id="productGrid">
+                <div class="empty-state" style="grid-column:1/-1;"><i class="fas fa-spinner fa-spin"></i><p>加载中...</p></div>
+            </div>
+
+            <div id="paginationContainer" style="display:none;">
+                <div class="pagination" id="pagination"></div>
+                <div class="page-info" id="pageInfo"></div>
+            </div>
+        </div>
+    </main>
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-section"><h4>优品汇</h4><p>致力于打造高端二手交易平台。</p></div>
+            <div class="footer-section"><h4>服务</h4><ul><li><a href="#">帮助中心</a></li><li><a href="#">交易保障</a></li></ul></div>
+            <div class="footer-section"><h4>关注</h4><div class="social-links"><a href="#"><i class="fab fa-weixin"></i></a><a href="#"><i class="fab fa-weibo"></i></a></div></div>
+        </div>
+        <div class="footer-bottom"><p>&copy; 2026 优品汇 All Rights Reserved</p></div>
+    </footer>
+    <script src="/js/main.js"></script>
+    <script>
+    var searchQuery = '[[${query}]]' || '';
+    var sortBySelect, conditionSelect;
+    var currentPage = 0;
+    var pageSize = 12;
+    var totalPages = 0;
+    var totalItems = 0;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        sortBySelect = App.customSelect(document.getElementById('sortBy'));
+        conditionSelect = App.customSelect(document.getElementById('conditionFilter'));
+
+        document.getElementById('searchForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var newQuery = document.getElementById('searchInput').value.trim();
+            if (newQuery) {
+                searchQuery = newQuery;
+                currentPage = 0;
+                loadProducts();
+                history.pushState(null, '', '/search?q=' + encodeURIComponent(newQuery));
+                document.title = newQuery + ' - 搜索结果 - 优品汇';
+            }
+        });
+
+        document.getElementById('minPrice').addEventListener('keydown', function(e) { if (e.key === 'Enter') applyFilters(); });
+        document.getElementById('maxPrice').addEventListener('keydown', function(e) { if (e.key === 'Enter') applyFilters(); });
+
+        if (searchQuery) {
+            loadProducts();
+        } else {
+            document.getElementById('productGrid').innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><i class="fas fa-search"></i><p>输入关键词搜索你想要的商品</p></div>';
+            document.getElementById('productCount').textContent = '';
+        }
+    });
+
+    function loadProducts() {
+        if (!searchQuery) return;
+
+        var params = new URLSearchParams();
+        params.set('q', searchQuery);
+
+        var sortBy = sortBySelect ? sortBySelect.getValue() : document.getElementById('sortBy').value;
+        if (sortBy) params.set('sortBy', sortBy);
+
+        var minPrice = document.getElementById('minPrice').value;
+        if (minPrice) params.set('minPrice', minPrice);
+
+        var maxPrice = document.getElementById('maxPrice').value;
+        if (maxPrice) params.set('maxPrice', maxPrice);
+
+        var condition = conditionSelect ? conditionSelect.getValue() : document.getElementById('conditionFilter').value;
+        if (condition) params.set('condition', condition);
+
+        params.set('page', currentPage);
+        params.set('size', pageSize);
+
+        App.api('/api/products/search?' + params.toString()).then(function(data) {
+            var grid = document.getElementById('productGrid');
+            if (!data.success || !data.products || data.products.length === 0) {
+                grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><i class="fas fa-search"></i><p>未找到与 "' + searchQuery + '" 相关的商品</p></div>';
+                document.getElementById('productCount').textContent = '共 0 件商品';
+                document.getElementById('paginationContainer').style.display = 'none';
+                return;
+            }
+
+            totalItems = data.total || data.products.length;
+            totalPages = data.totalPages || Math.ceil(totalItems / pageSize);
+            currentPage = data.currentPage || 0;
+
+            document.getElementById('productCount').textContent = '共找到 ' + totalItems + ' 件商品';
+            var html = '';
+            data.products.forEach(function(p) {
+                var img = p.imageUrl || '';
+                if (img.indexOf(',') > -1) img = img.split(',')[0].trim();
+                var soldClass = p.status === 'sold' ? ' sold-card' : '';
+                var soldBadge = p.status === 'sold' ? '<div class="product-badge sold">已售出</div>' : '';
+                var avatarHtml = p.sellerAvatar ? '<img src="' + p.sellerAvatar + '" class="seller-mini-avatar" alt="" onerror="this.style.display=\'none\'">' : '<i class="fas fa-user-circle"></i>';
+                html += '<div class="product-card-premium' + soldClass + '">' +
+                    '<a href="/product/' + p.id + '" style="color:inherit;text-decoration:none;display:block;">' +
+                    '<div class="product-image">' +
+                        (img ? '<img src="' + img + '" alt="' + (p.name||'') + '" loading="lazy" width="400" height="300">' : '<div class="image-placeholder"><i class="fas fa-image"></i></div>') +
+                        soldBadge +
+                    '</div>' +
+                    '<div class="product-info">' +
+                        '<h3 class="product-title">' + (p.name||'') + '</h3>' +
+                        '<p class="product-desc">' + (p.description ? (p.description.length > 15 ? p.description.substring(0,15) + '...' : p.description) : '暂无描述') + '</p>' +
+                        '<div class="product-price-row"><span class="product-price">¥' + Number(p.secondHandPrice||0).toLocaleString() + '</span></div>' +
+                        '<div class="product-seller">' + avatarHtml + '<span class="seller-mini-name">' + (p.sellerName||'') + '</span></div>' +
+                    '</div></a></div>';
+            });
+            grid.innerHTML = html;
+
+            renderPagination();
+        });
+    }
+
+    function renderPagination() {
+        var container = document.getElementById('paginationContainer');
+        var pagination = document.getElementById('pagination');
+        var pageInfo = document.getElementById('pageInfo');
+
+        if (totalPages <= 1) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        var html = '';
+
+        html += '<button onclick="goToPage(' + (currentPage - 1) + ')"' + (currentPage === 0 ? ' disabled' : '') + '><i class="fas fa-chevron-left"></i></button>';
+
+        var startPage = Math.max(0, currentPage - 2);
+        var endPage = Math.min(totalPages - 1, currentPage + 2);
+
+        if (startPage > 0) {
+            html += '<button onclick="goToPage(0)">1</button>';
+            if (startPage > 1) html += '<span style="padding:0 4px;color:var(--color-text-light);">...</span>';
+        }
+
+        for (var i = startPage; i <= endPage; i++) {
+            html += '<button onclick="goToPage(' + i + ')"' + (i === currentPage ? ' class="active"' : '') + '>' + (i + 1) + '</button>';
+        }
+
+        if (endPage < totalPages - 1) {
+            if (endPage < totalPages - 2) html += '<span style="padding:0 4px;color:var(--color-text-light);">...</span>';
+            html += '<button onclick="goToPage(' + (totalPages - 1) + ')">' + totalPages + '</button>';
+        }
+
+        html += '<button onclick="goToPage(' + (currentPage + 1) + ')"' + (currentPage === totalPages - 1 ? ' disabled' : '') + '><i class="fas fa-chevron-right"></i></button>';
+
+        html += '<div class="page-input"><span>跳至</span><input type="number" id="pageInput" min="1" max="' + totalPages + '" value="' + (currentPage + 1) + '" onkeydown="if(event.key===\'Enter\')jumpToPage()"><span>页</span></div>';
+
+        pagination.innerHTML = html;
+        pageInfo.textContent = '第 ' + (currentPage + 1) + ' / ' + totalPages + ' 页，共 ' + totalItems + ' 件商品';
+    }
+
+    function goToPage(page) {
+        if (page < 0 || page >= totalPages) return;
+        currentPage = page;
+        loadProducts();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function jumpToPage() {
+        var input = document.getElementById('pageInput');
+        var page = parseInt(input.value) - 1;
+        if (isNaN(page) || page < 0) page = 0;
+        if (page >= totalPages) page = totalPages - 1;
+        goToPage(page);
+    }
+
+    function applyFilters() {
+        currentPage = 0;
+        loadProducts();
+    }
+
+    function resetFilters() {
+        if (sortBySelect) sortBySelect.setValue('newest');
+        if (conditionSelect) conditionSelect.setValue('');
+        document.getElementById('minPrice').value = '';
+        document.getElementById('maxPrice').value = '';
+        currentPage = 0;
+        loadProducts();
+    }
+    </script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Maven
+target/
+.maven/
+*.jar
+*.war
+*.ear
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+node_modules/
+
+# Local leftovers / locks
+.mimocode/.cron-lock
+/javaweb/
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# Logs
+*.log
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# User uploaded files
+product-images/*
+!product-images/.gitkeep
+user-avatar/*
+!user-avatar/default.jpg
+!user-avatar/.gitkeep
+uploads/
+.app.pid
+
+# 忽略根目录的重复文件
+/static/
+/templates/
+/java-backend/

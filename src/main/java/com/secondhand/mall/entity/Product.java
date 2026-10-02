@@ -37,7 +37,7 @@ public class Product {
     @Column(nullable = false, length = 100)
     private String sellerName;
 
-    @Column(nullable = false, length = 20)
+    @Column(length = 20)
     private String sellerPhone;
 
     @Column(length = 100)
@@ -61,7 +61,7 @@ public class Product {
     @Column(nullable = false, length = 20)
     private String status;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "DATETIME(6)")
     private LocalDateTime createdAt;
 
     @PrePersist

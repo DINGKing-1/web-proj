@@ -12,6 +12,9 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(unique = true, length = 30)
+    private String orderNumber;
+
     @Column(nullable = false, length = 100)
     private String username;
 
@@ -26,6 +29,9 @@ public class Order {
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal productPrice;
+
+    @Column
+    private Integer quantity;
 
     @Column(nullable = false, length = 100)
     private String category;
@@ -58,12 +64,16 @@ public class Order {
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (status == null) status = "unshipped";
+        if (quantity == null) quantity = 1;
     }
 
     public Order() {}
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public String getOrderNumber() { return orderNumber; }
+    public void setOrderNumber(String orderNumber) { this.orderNumber = orderNumber; }
 
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
@@ -79,6 +89,9 @@ public class Order {
 
     public BigDecimal getProductPrice() { return productPrice; }
     public void setProductPrice(BigDecimal productPrice) { this.productPrice = productPrice; }
+
+    public Integer getQuantity() { return quantity; }
+    public void setQuantity(Integer quantity) { this.quantity = quantity; }
 
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }
