@@ -77,7 +77,12 @@ function isActive(item) {
 </template>
 
 <style scoped>
-/* 液态玻璃：半透明暖白 + 模糊 + 内高光 + 轻微色散描边 */
+/*
+  液态玻璃（低透明度）：
+  - 基底更实（α≈0.88–0.94），内容不被背景干扰
+  - 多层高光：顶部镜面、侧面焦散、边缘折射描边
+  - 缓慢流光动画，增强“液体”质感
+*/
 .side-dock {
   position: fixed;
   right: 18px;
@@ -88,17 +93,26 @@ function isActive(item) {
   padding: 10px 8px;
   border-radius: 28px;
   color: var(--ink-soft);
+  isolation: isolate;
 
+  /* 低透明度：厚玻璃而不是薄纱 */
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 248, 241, 0.42) 48%, rgba(255, 255, 255, 0.58) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.65);
+    linear-gradient(
+      155deg,
+      rgba(255, 253, 248, 0.94) 0%,
+      rgba(255, 246, 235, 0.88) 42%,
+      rgba(250, 240, 228, 0.92) 100%
+    );
+  border: 1px solid rgba(255, 255, 255, 0.78);
   box-shadow:
-    0 10px 40px rgba(120, 70, 25, 0.14),
-    0 2px 8px rgba(120, 70, 25, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(22px) saturate(1.45);
-  -webkit-backdrop-filter: blur(22px) saturate(1.45);
+    0 14px 40px rgba(120, 70, 25, 0.16),
+    0 4px 12px rgba(120, 70, 25, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1.5px 0 rgba(255, 255, 255, 0.35),
+    inset 1px 0 0 rgba(255, 255, 255, 0.45),
+    inset -1px 0 0 rgba(255, 236, 214, 0.35);
+  backdrop-filter: blur(28px) saturate(1.6) brightness(1.02);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6) brightness(1.02);
 
   transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1), padding 0.28s ease, box-shadow 0.25s ease;
   overflow: hidden;
@@ -108,22 +122,76 @@ function isActive(item) {
   width: 92px;
   padding: 12px 10px;
   box-shadow:
-    0 18px 50px rgba(120, 70, 25, 0.18),
-    0 4px 14px rgba(120, 70, 25, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.3);
+    0 22px 56px rgba(120, 70, 25, 0.2),
+    0 6px 18px rgba(120, 70, 25, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1.5px 0 rgba(255, 255, 255, 0.4),
+    inset 1px 0 0 rgba(255, 255, 255, 0.55),
+    inset -1px 0 0 rgba(255, 236, 214, 0.4);
 }
 
-/* 顶部流光，强化“液态”感 */
+/* 液态层：镜面高光 + 边缘折射 + 暖色焦散 */
 .dock-glow {
   position: absolute;
   inset: 0;
   pointer-events: none;
   border-radius: inherit;
+  z-index: 0;
   background:
-    radial-gradient(120% 60% at 20% 0%, rgba(255, 255, 255, 0.55), transparent 55%),
-    radial-gradient(80% 40% at 100% 80%, rgba(212, 136, 60, 0.12), transparent 60%);
+    /* 顶部镜面 */
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.72) 0%,
+      rgba(255, 255, 255, 0.12) 28%,
+      transparent 48%
+    ),
+    /* 左侧折射亮边 */
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      transparent 18%
+    ),
+    /* 暖色焦散 */
+    radial-gradient(90% 55% at 85% 15%, rgba(255, 214, 160, 0.28), transparent 58%),
+    radial-gradient(70% 40% at 15% 85%, rgba(255, 255, 255, 0.35), transparent 55%);
+}
+
+/* 缓慢流光，液体流动感 */
+.dock-glow::after {
+  content: '';
+  position: absolute;
+  inset: -20% -40%;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.45) 48%,
+    rgba(255, 230, 190, 0.22) 55%,
+    transparent 72%
+  );
+  transform: translateX(-30%) rotate(8deg);
+  animation: dockSheen 5.5s ease-in-out infinite;
   mix-blend-mode: soft-light;
+}
+
+@keyframes dockSheen {
+  0%,
+  100% {
+    transform: translateX(-35%) rotate(8deg);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateX(25%) rotate(8deg);
+    opacity: 1;
+  }
+}
+
+.dock-items {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .dock-items {
@@ -147,15 +215,22 @@ function isActive(item) {
 }
 
 .dock-item:hover {
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.72);
   color: var(--accent-deep);
   transform: translateY(-1px);
+  box-shadow:
+    0 4px 12px rgba(120, 70, 25, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .dock-item.active {
-  background: linear-gradient(160deg, rgba(212, 136, 60, 0.22), rgba(212, 136, 60, 0.08));
+  background:
+    linear-gradient(160deg, rgba(212, 136, 60, 0.28), rgba(212, 136, 60, 0.12)),
+    rgba(255, 255, 255, 0.55);
   color: var(--accent-deep);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 2px 8px rgba(212, 136, 60, 0.12);
 }
 
 .icon-wrap {
