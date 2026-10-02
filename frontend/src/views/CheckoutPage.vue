@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { productApi, cartApi, orderApi, userApi } from '@/api'
 import { formatPrice, firstImage } from '@/api/client'
+import LoadingBlock from '@/components/LoadingBlock.vue'
 import { showToast, confirmDialog } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 
@@ -169,7 +170,7 @@ onMounted(load)
       <h1 class="h1">确认订单</h1>
       <p class="muted mb-4">余额支付 · 确认无误后提交</p>
 
-      <div v-if="loading" class="loading"><div class="spinner"></div>加载中…</div>
+      <LoadingBlock v-if="loading" />
       <template v-else>
         <section class="card card-pad block">
           <h2 class="h3 mb-3">商品清单</h2>

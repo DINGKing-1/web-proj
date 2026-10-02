@@ -6,6 +6,7 @@ import { formatPrice, firstImage } from '@/api/client'
 import { showToast, confirmDialog } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingBlock from '@/components/LoadingBlock.vue'
 
 const router = useRouter()
 const store = useUserStore()
@@ -94,7 +95,7 @@ onMounted(load)
         </button>
       </div>
 
-      <div v-if="loading" class="loading"><div class="spinner"></div>加载中…</div>
+      <LoadingBlock v-if="loading" />
       <EmptyState
         v-else-if="!items.length"
         icon="fa-shopping-bag"

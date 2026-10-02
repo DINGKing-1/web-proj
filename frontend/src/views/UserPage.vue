@@ -611,7 +611,7 @@ onMounted(load)
           </div>
           <div class="form-group">
             <label>描述</label>
-            <textarea v-model="editForm.description" class="form-input" rows="3"></textarea>
+            <textarea v-model="editForm.description" class="form-textarea" rows="3"></textarea>
           </div>
         <template #actions>
           <button class="btn btn-outline" @click="editing = null">取消</button>

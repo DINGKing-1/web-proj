@@ -5,6 +5,7 @@ import { productApi } from '@/api'
 import ProductCard from '@/components/ProductCard.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import FilterBar from '@/components/FilterBar.vue'
+import LoadingBlock from '@/components/LoadingBlock.vue'
 import EmptyState from '@/components/EmptyState.vue'
 
 const route = useRoute()
@@ -90,13 +91,7 @@ onMounted(() => load(0))
         @reset="resetFilters"
       />
 
-      <div v-if="loading" class="grid">
-        <div v-for="i in 8" :key="i" class="card skeleton-card">
-          <div class="skeleton-img"></div>
-          <div class="skeleton-line w70"></div>
-          <div class="skeleton-line w40"></div>
-        </div>
-      </div>
+      <LoadingBlock v-if="loading" />
       <EmptyState
         v-else-if="!products.length"
         icon="fa-box-open"

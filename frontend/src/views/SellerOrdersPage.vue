@@ -5,6 +5,7 @@ import { formatPrice, formatTime, ORDER_STATUS } from '@/api/client'
 import { showToast } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingBlock from '@/components/LoadingBlock.vue'
 
 const store = useUserStore()
 const orders = ref([])
@@ -52,7 +53,7 @@ onMounted(load)
       <h1 class="h1">卖家发货</h1>
       <p class="muted mb-4">处理待发货订单，填写快递单号后发货</p>
 
-      <div v-if="loading" class="loading"><div class="spinner"></div>加载中…</div>
+      <LoadingBlock v-if="loading" />
       <EmptyState
         v-else-if="!orders.length"
         icon="fa-store"

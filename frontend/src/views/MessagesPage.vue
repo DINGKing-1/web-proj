@@ -380,7 +380,7 @@ onBeforeUnmount(() => {
               placeholder="输入消息，Enter 发送"
               @keydown="onKeydown"
             ></textarea>
-            <el-button type="primary" @click="sendText">发送</el-button>
+            <button type="button" class="btn btn-primary" @click="sendText">发送</button>
           </footer>
         </template>
       </section>

@@ -1,8 +1,9 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productApi, cartApi, favoriteApi, chatApi } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingBlock from '@/components/LoadingBlock.vue'
 import { firstImage, formatPrice, formatTime } from '@/api/client'
 import { showToast, confirmDialog } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
@@ -223,7 +224,7 @@ onBeforeUnmount(stopAuto)
 <template>
   <main class="page">
     <div class="container">
-      <div v-if="loading" class="loading"><div class="spinner"></div>加载中…</div>
+      <LoadingBlock v-if="loading" />
       <EmptyState
         v-else-if="!product"
         icon="fa-box-open"

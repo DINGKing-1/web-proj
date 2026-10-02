@@ -4,6 +4,7 @@ import { productApi } from '@/api'
 import ProductCard from '@/components/ProductCard.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingBlock from '@/components/LoadingBlock.vue'
 import { CATEGORIES } from '@/api/client'
 
 const products = ref([])
@@ -143,9 +144,7 @@ const FEATURES = [
         <router-link to="/search" class="btn btn-outline btn-sm">搜索商品</router-link>
       </div>
 
-      <div v-if="loading" class="grid">
-        <div v-for="i in 8" :key="i" class="skel"></div>
-      </div>
+      <LoadingBlock v-if="loading" />
       <EmptyState
         v-else-if="!products.length"
         icon="fa-store"

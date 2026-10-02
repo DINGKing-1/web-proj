@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { orderApi, productApi, chatApi } from '@/api'
@@ -7,6 +7,7 @@ import { showToast, confirmDialog } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 import OrderTimeline from '@/components/OrderTimeline.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingBlock from '@/components/LoadingBlock.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -129,7 +130,7 @@ onMounted(load)
         </router-link>
       </div>
 
-      <div v-if="loading" class="loading"><div class="spinner"></div>加载中…</div>
+      <LoadingBlock v-if="loading" />
       <EmptyState
         v-else-if="!order"
         icon="fa-box-open"
