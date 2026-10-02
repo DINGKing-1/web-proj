@@ -89,9 +89,9 @@ function isActive(item) {
   top: 50%;
   transform: translateY(-50%);
   z-index: var(--z-sticky);
-  width: 56px;
-  padding: 10px 8px;
-  border-radius: 28px;
+  width: 48px;
+  padding: 8px 6px;
+  border-radius: 22px;
   color: var(--ink-soft);
   isolation: isolate;
 
@@ -119,8 +119,8 @@ function isActive(item) {
 }
 
 .side-dock.expanded {
-  width: 92px;
-  padding: 12px 10px;
+  width: 78px;
+  padding: 10px 8px;
   box-shadow:
     0 22px 56px rgba(120, 70, 25, 0.2),
     0 6px 18px rgba(120, 70, 25, 0.1),
@@ -191,25 +191,18 @@ function isActive(item) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
-.dock-items {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
 
 .dock-item {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 8px 4px;
-  border-radius: 16px;
+  gap: 1px;
+  padding: 6px 2px;
+  border-radius: 12px;
   color: var(--ink-soft);
   transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
@@ -235,11 +228,11 @@ function isActive(item) {
 
 .icon-wrap {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .dock-label {
@@ -254,21 +247,21 @@ function isActive(item) {
 }
 
 .side-dock.expanded .dock-label {
-  max-width: 64px;
+  max-width: 56px;
   opacity: 1;
 }
 
 .dock-badge {
   position: absolute;
-  top: -3px;
-  right: -8px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  top: -2px;
+  right: -7px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   display: grid;
   place-items: center;
@@ -276,30 +269,31 @@ function isActive(item) {
 }
 
 .dock-divider {
-  width: 28px;
+  width: 22px;
   height: 1px;
-  margin: 4px 0;
+  margin: 2px 0;
   background: linear-gradient(90deg, transparent, rgba(120, 70, 25, 0.18), transparent);
 }
 
 /* 移动端收成更窄，避免遮挡内容 */
 @media (max-width: 768px) {
   .side-dock {
-    right: 10px;
-    width: 48px;
-    padding: 8px 6px;
-    border-radius: 22px;
+    right: 8px;
+    width: 42px;
+    padding: 6px 5px;
+    border-radius: 18px;
   }
   .side-dock.expanded {
-    width: 78px;
+    width: 68px;
+    padding: 8px 6px;
   }
   .dock-item {
-    padding: 7px 2px;
+    padding: 5px 2px;
   }
   .icon-wrap {
-    width: 24px;
-    height: 24px;
-    font-size: 13px;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
   }
 }
 </style>
