@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { productApi, uploadApi } from '@/api'
@@ -9,7 +9,6 @@ import { useUserStore } from '@/stores/user'
 const router = useRouter()
 const store = useUserStore()
 
-const formRef = ref()
 const form = reactive({
   name: '',
   category: '',
@@ -26,20 +25,19 @@ const submitting = ref(false)
 const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
 const MAX_SIZE = 10 * 1024 * 1024
 
-const rules = {
-  name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
-  category: [{ required: true, message: '请选择分类', trigger: 'change' }],
-  secondHandPrice: [
-    {
-      validator: (_r, v, cb) => {
-        if (v === '' || v === null || v === undefined) cb(new Error('请输入售价'))
-        else if (Number(v) <= 0) cb(new Error('售价必须大于 0'))
-        else cb()
-      },
-      trigger: 'blur'
-    }
-  ],
-  condition: [{ required: true, message: '请选择成色', trigger: 'change' }]
+const errors = reactive({ name: '', category: '', secondHandPrice: '', condition: '' })
+
+function validate() {
+  errors.name = form.name.trim() ? '' : '请输入商品名称'
+  errors.category = form.category ? '' : '请选择分类'
+  errors.secondHandPrice =
+    form.secondHandPrice === '' || form.secondHandPrice === null || form.secondHandPrice === undefined
+      ? '请输入售价'
+      : Number(form.secondHandPrice) <= 0
+        ? '售价必须大于 0'
+        : ''
+  errors.condition = form.condition ? '' : '请选择成色'
+  return !Object.values(errors).some(Boolean)
 }
 
 function readFileAsDataURL(file) {
@@ -119,34 +117,33 @@ async function submit() {
     router.push('/login')
     return
   }
-  const formEl = formRef.value
-  if (!formEl) return
-  await formEl.validate(async (valid) => {
-    if (!valid) return
-    if (!imageUrls.value.length) {
-      showToast('请至少上传一张图片', 'warning')
-      return
-    }
-    submitting.value = true
-    const price = Number(form.secondHandPrice)
-    const d = await productApi.create({
-      name: form.name.trim(),
-      category: form.category,
-      description: form.description.trim(),
-      originalPrice: price,
-      secondHandPrice: price,
-      condition: form.condition,
-      imageUrl: imageUrls.value,
-      quantity: Number(form.quantity) || 1
-    })
-    submitting.value = false
-    if (d.success) {
-      showToast('商品发布成功')
-      setTimeout(() => router.push(`/product/${d.productId}`), 400)
-    } else {
-      showToast(d.message || '发布失败', 'error')
-    }
+  if (!validate()) {
+    showToast('请完善必填信息', 'warning')
+    return
+  }
+  if (!imageUrls.value.length) {
+    showToast('请至少上传一张图片', 'warning')
+    return
+  }
+  submitting.value = true
+  const price = Number(form.secondHandPrice)
+  const d = await productApi.create({
+    name: form.name.trim(),
+    category: form.category,
+    description: form.description.trim(),
+    originalPrice: price,
+    secondHandPrice: price,
+    condition: form.condition,
+    imageUrl: imageUrls.value,
+    quantity: Number(form.quantity) || 1
   })
+  submitting.value = false
+  if (d.success) {
+    showToast('商品发布成功')
+    setTimeout(() => router.push(`/product/${d.productId}`), 400)
+  } else {
+    showToast(d.message || '发布失败', 'error')
+  }
 }
 </script>
 
@@ -156,13 +153,11 @@ async function submit() {
       <h1 class="h1">发布商品</h1>
       <p class="muted mb-4">把闲置好物分享给需要的人</p>
 
-      <el-card shadow="never" class="block">
-        <template #header>
-          <div class="card-head">
+      <section class="card card-pad block">
+        <div class="card-head">
             <span class="h3">商品图片</span>
-            <el-tag size="small" type="info" effect="plain">支持多图 · 可拖拽排序 · 单张 ≤10MB</el-tag>
+            <span class="badge badge-muted">支持多图 · 可拖拽排序 · 单张 ≤10MB</span>
           </div>
-        </template>
         <div class="image-grid">
           <div
             v-for="(url, i) in previews"
@@ -186,76 +181,103 @@ async function submit() {
           </label>
         </div>
         <div v-if="uploading" class="muted text-sm mt-2">图片上传中…</div>
-      </el-card>
+      </section>
 
-      <el-card shadow="never" class="block">
-        <template #header><span class="h3">基本信息</span></template>
-        <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-          <el-form-item label="商品名称" prop="name">
-            <el-input v-model="form.name" maxlength="255" show-word-limit placeholder="例如：iPhone 14 Pro 256G" />
-          </el-form-item>
+      <section class="card card-pad block">
+        <h2 class="h3 mb-3">基本信息</h2>
 
-          <el-row :gutter="14">
-            <el-col :span="12">
-              <el-form-item label="分类" prop="category">
-                <el-select v-model="form.category" placeholder="请选择分类" class="w-full">
-                  <el-option
-                    v-for="c in CATEGORIES.filter((x) => x !== '全部')"
-                    :key="c"
-                    :label="c"
-                    :value="c"
-                  />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="售价（元）" prop="secondHandPrice">
-                <el-input-number
-                  v-model="form.secondHandPrice"
-                  :min="0"
-                  :precision="2"
-                  :step="1"
-                  controls-position="right"
-                  class="w-full"
-                  placeholder="0.00"
-                />
-              </el-form-item>
-            </el-col>
-          </el-row>
+        <div class="form-group">
+          <label for="up-name">商品名称</label>
+          <input
+            id="up-name"
+            v-model="form.name"
+            class="form-input"
+            :class="{ invalid: errors.name }"
+            maxlength="255"
+            placeholder="例如：iPhone 14 Pro 256G"
+            @input="errors.name = ''"
+          />
+          <p v-if="errors.name" class="field-error">{{ errors.name }}</p>
+        </div>
 
-          <el-row :gutter="14">
-            <el-col :span="12">
-              <el-form-item label="库存">
-                <el-input-number v-model="form.quantity" :min="1" :max="999" controls-position="right" class="w-full" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="成色" prop="condition">
-                <el-select v-model="form.condition" placeholder="请选择成色" class="w-full">
-                  <el-option v-for="c in CONDITIONS" :key="c" :label="c" :value="c" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <el-form-item label="商品描述">
-            <el-input
-              v-model="form.description"
-              type="textarea"
-              :rows="4"
-              maxlength="2000"
-              show-word-limit
-              placeholder="介绍成色、使用情况、配件等…"
+        <div class="row">
+          <div class="form-group">
+            <label for="up-cat">分类</label>
+            <select
+              id="up-cat"
+              v-model="form.category"
+              class="form-select"
+              :class="{ invalid: errors.category }"
+              @change="errors.category = ''"
+            >
+              <option value="" disabled>请选择分类</option>
+              <option v-for="c in CATEGORIES.filter((x) => x !== '全部')" :key="c" :value="c">{{ c }}</option>
+            </select>
+            <p v-if="errors.category" class="field-error">{{ errors.category }}</p>
+          </div>
+          <div class="form-group">
+            <label for="up-price">售价（元）</label>
+            <input
+              id="up-price"
+              v-model="form.secondHandPrice"
+              class="form-input"
+              :class="{ invalid: errors.secondHandPrice }"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              @input="errors.secondHandPrice = ''"
             />
-          </el-form-item>
-        </el-form>
-      </el-card>
+            <p v-if="errors.secondHandPrice" class="field-error">{{ errors.secondHandPrice }}</p>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="form-group">
+            <label for="up-qty">库存</label>
+            <input
+              id="up-qty"
+              v-model="form.quantity"
+              class="form-input"
+              type="number"
+              min="1"
+              max="999"
+            />
+          </div>
+          <div class="form-group">
+            <label for="up-cond">成色</label>
+            <select
+              id="up-cond"
+              v-model="form.condition"
+              class="form-select"
+              :class="{ invalid: errors.condition }"
+              @change="errors.condition = ''"
+            >
+              <option value="" disabled>请选择成色</option>
+              <option v-for="c in CONDITIONS" :key="c" :value="c">{{ c }}</option>
+            </select>
+            <p v-if="errors.condition" class="field-error">{{ errors.condition }}</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="up-desc">商品描述</label>
+          <textarea
+            id="up-desc"
+            v-model="form.description"
+            class="form-textarea"
+            rows="4"
+            maxlength="2000"
+            placeholder="介绍成色、使用情况、配件等…"
+          ></textarea>
+        </div>
+      </section>
 
       <div class="footer-actions">
-        <el-button size="large" @click="router.back()">取消</el-button>
-        <el-button type="primary" size="large" :loading="submitting" @click="submit">
-          发布商品
-        </el-button>
+        <button type="button" class="btn btn-outline btn-lg" @click="router.back()">取消</button>
+        <button type="button" class="btn btn-primary btn-lg" :disabled="submitting" @click="submit">
+          {{ submitting ? '发布中…' : '发布商品' }}
+        </button>
       </div>
     </div>
   </main>
@@ -327,6 +349,22 @@ async function submit() {
 .add-cell:hover {
   border-color: var(--accent);
   color: var(--accent-deep);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.form-input.invalid,
+.form-select.invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(214, 69, 69, 0.12);
+}
+.field-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--danger);
 }
 .footer-actions {
   display: flex;
