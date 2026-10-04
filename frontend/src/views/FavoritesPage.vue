@@ -1,18 +1,26 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { favoriteApi } from '@/api'
-import { formatPrice, firstImage } from '@/api/client'
+import { formatPrice, imgOf, onImgError } from '@/api/client'
 import { showToast, confirmDialog } from '@/composables/ui'
 import EmptyState from '@/components/EmptyState.vue'
 import LoadingBlock from '@/components/LoadingBlock.vue'
 
 const favorites = ref([])
 const loading = ref(true)
+/** 加载是否失败：失败时不得显示“还没有收藏”误导用户 */
+const loadError = ref(false)
 
 async function load() {
   loading.value = true
+  loadError.value = false
   const d = await favoriteApi.list()
-  if (d.success) favorites.value = d.favorites || []
+  if (d.success) {
+    favorites.value = d.favorites || []
+  } else {
+    loadError.value = true
+    showToast(d.message || '收藏加载失败', 'error')
+  }
   loading.value = false
 }
 
@@ -48,6 +56,14 @@ onMounted(load)
 
       <LoadingBlock v-if="loading" />
       <EmptyState
+        v-else-if="loadError"
+        icon="fa-exclamation-circle"
+        title="收藏加载失败"
+        desc="网络异常，请稍后重试"
+      >
+        <button class="btn btn-primary" @click="load">重新加载</button>
+      </EmptyState>
+      <EmptyState
         v-else-if="!favorites.length"
         icon="fa-heart"
         title="还没有收藏任何商品"
@@ -60,15 +76,15 @@ onMounted(load)
         <article v-for="item in favorites" :key="item.favoriteId" class="fav-card">
           <router-link :to="`/product/${item.id}`" class="thumb-wrap">
             <img
-              :src="firstImage(item) || '/user-avatar/default.jpg'"
+              :src="imgOf(item)"
               alt=""
-              @error="$event.target.src = '/user-avatar/default.jpg'"
+              @error="onImgError"
             />
             <span
               v-if="item.status && item.status !== 'active'"
               class="status-chip"
             >
-              {{ item.status === 'sold' ? '已售出' : '已下架' }}
+              {{ item.status === 'sold' ? '已售出' : item.status === 'pending' ? '审核中' : item.status === 'rejected' ? '已驳回' : '已下架' }}
             </span>
           </router-link>
           <div class="body">
@@ -93,8 +109,8 @@ onMounted(load)
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
 }
 .fav-card {
   background: var(--surface);

@@ -14,6 +14,11 @@ const router = useRouter()
 const store = useUserStore()
 
 const isRegister = computed(() => props.mode === 'register' || route.path === '/register')
+const isReset = ref(false)
+const resetForm = reactive({ username: '', email: '', code: '', password: '' })
+const sendingCode = ref(false)
+const codeCooldown = ref(0)
+let cooldownTimer = null
 const loading = ref(false)
 const showLoginPwd = ref(false)
 const showRegPwd = ref(false)
@@ -44,6 +49,63 @@ function validateLogin() {
   return !loginErrors.username && !loginErrors.password
 }
 
+async function sendResetCode() {
+  if (!resetForm.username.trim() || !resetForm.email.trim()) {
+    showToast('请先填写用户名和邮箱', 'warning')
+    return
+  }
+  if (codeCooldown.value > 0) return
+  sendingCode.value = true
+  const d = await authApi.sendResetCode({
+    username: resetForm.username.trim(),
+    email: resetForm.email.trim()
+  })
+  sendingCode.value = false
+  if (d.success) {
+    showToast(d.message || '验证码已发送')
+    codeCooldown.value = 60
+    cooldownTimer && clearInterval(cooldownTimer)
+    cooldownTimer = setInterval(() => {
+      codeCooldown.value -= 1
+      if (codeCooldown.value <= 0) {
+        clearInterval(cooldownTimer)
+        cooldownTimer = null
+      }
+    }, 1000)
+  } else {
+    showToast(d.message || '发送失败', 'error')
+  }
+}
+
+async function submitReset() {
+  if (!resetForm.username.trim() || !resetForm.email.trim() || !resetForm.code.trim() || !resetForm.password) {
+    showToast('请填写完整信息', 'warning')
+    return
+  }
+  if (resetForm.password.length < 6) {
+    showToast('新密码至少 6 位', 'warning')
+    return
+  }
+  loading.value = true
+  const d = await authApi.resetPassword({
+    username: resetForm.username.trim(),
+    email: resetForm.email.trim(),
+    code: resetForm.code.trim(),
+    password: resetForm.password
+  })
+  loading.value = false
+  if (d.success) {
+    showToast(d.message || '密码重置成功')
+    isReset.value = false
+    resetForm.username = ''
+    resetForm.email = ''
+    resetForm.code = ''
+    resetForm.password = ''
+  } else {
+    showToast(d.message || '重置失败', 'error')
+  }
+}
+
 function validateRegister() {
   const u = registerForm.username.trim()
   registerErrors.username = !u ? '请输入用户名' : u.length < 3 || u.length > 50 ? '3-50 个字符' : ''
@@ -71,6 +133,7 @@ onMounted(() => {
 })
 
 async function submitLogin() {
+  if (loading.value) return
   if (!validateLogin()) return
   loading.value = true
   const d = await authApi.login(loginForm.username.trim(), loginForm.password)
@@ -84,14 +147,21 @@ async function submitLogin() {
       balance: d.balance
     })
     showToast(d.message || '登录成功')
+    // 仅允许站内相对路径跳转，排除 "//host" 等开放重定向
     const redirect = route.query.redirect
-    router.replace(typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/')
+    const safe =
+      typeof redirect === 'string' &&
+      redirect.startsWith('/') &&
+      !redirect.startsWith('//') &&
+      !redirect.startsWith('/\\')
+    router.replace(safe ? redirect : '/')
   } else {
     showToast(d.message || '登录失败', 'error')
   }
 }
 
 async function submitRegister() {
+  if (loading.value) return
   if (!validateRegister()) return
   loading.value = true
   const d = await authApi.register({
@@ -127,8 +197,37 @@ async function submitRegister() {
         <p class="muted">{{ isRegister ? '注册即赠 ¥10,000 体验余额' : '登录优品汇，继续你的闲置流转' }}</p>
       </div>
 
+      <!-- 忘记密码 -->
+      <form v-if="isReset && !isRegister" class="auth-form" @submit.prevent="submitReset">
+        <div class="form-group">
+          <label>用户名</label>
+          <input v-model="resetForm.username" class="form-input" placeholder="请输入用户名" />
+        </div>
+        <div class="form-group">
+          <label>注册邮箱</label>
+          <input v-model="resetForm.email" class="form-input" type="email" placeholder="请输入注册邮箱" />
+        </div>
+        <div class="form-group">
+          <label>邮箱验证码</label>
+          <div class="code-row">
+            <input v-model="resetForm.code" class="form-input" inputmode="numeric" maxlength="6" placeholder="6 位验证码" />
+            <button type="button" class="btn btn-outline code-btn" :disabled="sendingCode || codeCooldown > 0" @click="sendResetCode">
+              {{ codeCooldown > 0 ? `${codeCooldown}s` : sendingCode ? '发送中…' : '获取验证码' }}
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>新密码</label>
+          <input v-model="resetForm.password" class="form-input" type="password" placeholder="至少 6 位" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block" :disabled="loading">
+          {{ loading ? '提交中…' : '重置密码' }}
+        </button>
+        <button type="button" class="link-btn" @click="isReset = false">返回登录</button>
+      </form>
+
       <!-- 登录 -->
-      <form v-if="!isRegister" class="auth-form" @submit.prevent="submitLogin">
+      <form v-if="!isRegister && !isReset" class="auth-form" @submit.prevent="submitLogin">
         <div class="form-group">
           <label for="login-username">用户名</label>
           <input
@@ -154,7 +253,6 @@ async function submitRegister() {
               placeholder="请输入密码"
               autocomplete="current-password"
               @input="loginErrors.password = ''"
-              @keyup.enter="submitLogin"
             />
             <button
               type="button"
@@ -170,6 +268,7 @@ async function submitRegister() {
         <button type="submit" class="btn btn-primary btn-lg btn-block" :disabled="loading">
           {{ loading ? '登录中…' : '登录' }}
         </button>
+        <button v-if="!isReset" type="button" class="link-btn" @click="isReset = true">忘记密码？</button>
       </form>
 
       <!-- 注册 -->
@@ -286,11 +385,9 @@ async function submitRegister() {
           还没有账号？
           <router-link to="/register">立即注册</router-link>
         </template>
-      </div>
-
-      <div class="admin-tip muted text-sm">
-        管理员入口：
-        <router-link to="/admin">后台登录</router-link>
+        <div class="to-home">
+          <router-link to="/"><i class="fas fa-store"></i> 先去首页逛逛</router-link>
+        </div>
       </div>
     </div>
   </main>
@@ -329,6 +426,18 @@ async function submitRegister() {
   flex-direction: column;
   gap: 4px;
 }
+.code-row {
+  display: flex;
+  gap: 8px;
+}
+.code-row .form-input {
+  flex: 1;
+}
+.code-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  min-width: 110px;
+}
 .row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -365,6 +474,17 @@ async function submitRegister() {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px rgba(214, 69, 69, 0.12);
 }
+.link-btn {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+.link-btn:hover {
+  color: var(--accent-deep);
+}
 .field-error {
   margin: 6px 0 0;
   font-size: 12px;
@@ -373,19 +493,27 @@ async function submitRegister() {
 .switch {
   text-align: center;
   margin-top: 18px;
+  color: var(--muted);
   font-size: 14px;
-  color: var(--ink-soft);
+}
+.to-home {
+  margin-top: 12px;
+}
+.to-home a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-deep);
+  font-weight: 600;
+  font-size: 13px;
+  transition: transform 0.2s ease;
+}
+.to-home a:hover {
+  transform: translateY(-1px);
 }
 .switch a {
   color: var(--accent-deep);
   font-weight: 600;
-}
-.admin-tip {
-  text-align: center;
-  margin-top: 14px;
-}
-.admin-tip a {
-  color: var(--accent-deep);
 }
 @media (max-width: 520px) {
   .row {

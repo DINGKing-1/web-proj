@@ -27,9 +27,12 @@ function openMenu() {
   menuOpen.value = true
 }
 
-function scheduleClose(delay = 180) {
+/** 稍长的关闭延迟：从头像滑到下拉项时不会被误关 */
+function scheduleClose(delay = 420) {
   if (closeTimer) clearTimeout(closeTimer)
   closeTimer = setTimeout(() => {
+    // 若指针仍在菜单热区内则不关
+    if (userMenuRef.value && userMenuRef.value.matches(':hover')) return
     menuOpen.value = false
     closeTimer = 0
   }, delay)
@@ -105,6 +108,10 @@ const mobileSearchOpen = ref(false)
             <i class="fas fa-comment-dots"></i>
             <span v-if="store.unread > 0" class="badge-dot">{{ store.unread > 99 ? '99+' : store.unread }}</span>
           </router-link>
+          <router-link to="/notifications" class="icon-btn" aria-label="通知">
+            <i class="fas fa-bell"></i>
+            <span v-if="store.notifyUnread > 0" class="badge-dot">{{ store.notifyUnread > 99 ? '99+' : store.notifyUnread }}</span>
+          </router-link>
           <router-link to="/upload" class="btn btn-primary btn-sm hide-mobile">
             <i class="fas fa-plus"></i> 发布
           </router-link>
@@ -130,7 +137,7 @@ const mobileSearchOpen = ref(false)
               <i class="fas fa-chevron-down" :class="{ open: menuOpen }"></i>
             </button>
             <transition name="fade">
-              <div v-if="menuOpen" class="dropdown" role="menu" @mouseenter="openMenu" @mouseleave="scheduleClose()">
+              <div v-if="menuOpen" class="dropdown" role="menu">
                 <router-link to="/user" role="menuitem" @click="closeMenuNow">
                   <i class="fas fa-user"></i> 个人中心
                 </router-link>
@@ -188,20 +195,25 @@ const mobileSearchOpen = ref(false)
   flex-shrink: 0;
 }
 .brand-mark {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
   display: grid;
   place-items: center;
   color: #fff;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 800;
   background: linear-gradient(135deg, var(--accent), var(--accent-deep));
   box-shadow: 0 8px 18px rgba(212, 136, 60, 0.3);
 }
 .brand-text {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: linear-gradient(120deg, var(--ink), var(--accent-deep));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .search-box {
   flex: 1;
@@ -228,14 +240,16 @@ const mobileSearchOpen = ref(false)
   outline: none;
   background: transparent;
   min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
 }
 .search-btn {
-  padding: 8px 16px;
+  padding: 9px 18px;
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-deep);
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 14px;
 }
 .header-actions {
   display: flex;
@@ -275,16 +289,17 @@ const mobileSearchOpen = ref(false)
 .user-menu {
   position: relative;
   /* 覆盖触发器到下拉之间的空隙，避免 mouseleave 误关 */
-  padding-bottom: 12px;
-  margin-bottom: -12px;
+  padding-bottom: 18px;
+  margin-bottom: -18px;
 }
 .user-menu::before {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
+  /* 向左加宽：下拉右对齐，宽度可能超过触发器，斜向滑入时不能掉出热区 */
+  left: -56px;
+  right: -12px;
   top: 100%;
-  height: 16px;
+  height: 24px;
   z-index: var(--z-dropdown);
 }
 .user-trigger {
@@ -325,7 +340,8 @@ const mobileSearchOpen = ref(false)
 .dropdown {
   position: absolute;
   right: 0;
-  top: calc(100% + 4px);
+  /* 与触发器衔接，避免空隙切断 hover */
+  top: 100%;
   min-width: 168px;
   background: var(--surface);
   border: 1px solid var(--border);

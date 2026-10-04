@@ -1,7 +1,8 @@
 <script setup>
-import { CATEGORIES } from '@/api/client'
+import { useCategories } from '@/composables/categories'
 import { useRoute } from 'vue-router'
 
+const { categories } = useCategories()
 const route = useRoute()
 function toPath(cat) {
   return cat === '全部' ? '/' : `/category/${encodeURIComponent(cat)}`
@@ -16,7 +17,7 @@ function isActive(cat) {
   <nav class="category-bar" aria-label="商品分类">
     <div class="container category-scroll">
       <router-link
-        v-for="cat in CATEGORIES"
+        v-for="cat in categories"
         :key="cat"
         :to="toPath(cat)"
         class="cat-item"
@@ -33,6 +34,7 @@ function isActive(cat) {
   position: sticky;
   top: var(--header-h);
   z-index: var(--z-sticky);
+  height: var(--nav-h);
   background: rgba(255, 250, 245, 0.88);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -41,7 +43,9 @@ function isActive(cat) {
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding: 12px 0;
+  height: 100%;
+  align-items: center;
+  padding: 0;
   scrollbar-width: none;
 }
 .category-scroll::-webkit-scrollbar {

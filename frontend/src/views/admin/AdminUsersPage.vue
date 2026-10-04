@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
-import { formatPrice } from '@/api/client'
+import { formatPrice, isAuthFailure, isTransient } from '@/api/client'
 import { showToast, confirmDialog } from '@/composables/ui'
 import AdminShell from '@/components/AdminShell.vue'
 import { useUserStore } from '@/stores/user'
@@ -21,9 +21,13 @@ async function load() {
   const d = await adminApi.users()
   if (d.success) {
     users.value = d.users || []
-  } else {
+  } else if (isAuthFailure(d)) {
     store.setUser(null)
     router.replace('/admin')
+  } else if (!isTransient(d)) {
+    showToast(d.message || '加载用户失败', 'error')
+  } else {
+    showToast('网络异常，已保留当前数据', 'warning')
   }
   loading.value = false
 }
@@ -31,17 +35,37 @@ async function load() {
 async function removeUser(u) {
   const ok = await confirmDialog({
     title: '删除用户',
-    message: `确定删除用户「${u.username}」吗？相关数据可能受影响。`,
-    okText: '删除',
+    message: `确定删除用户「${u.username}」吗？将移入回收站，可稍后恢复。`,
+    okText: '移入回收站',
     type: 'warning'
   })
   if (!ok) return
   const d = await adminApi.deleteUser(u.id)
   if (d.success) {
-    showToast('删除成功')
+    showToast(d.message || '已移入回收站')
     load()
   } else {
     showToast(d.message || '删除失败', 'error')
+  }
+}
+
+async function toggleBan(u) {
+  const banned = !u.banned
+  const ok = await confirmDialog({
+    title: banned ? '封禁用户' : '解封用户',
+    message: banned
+      ? `封禁后「${u.username}」将无法登录，确定封禁吗？`
+      : `确定解封「${u.username}」吗？`,
+    okText: banned ? '封禁' : '解封',
+    type: 'warning'
+  })
+  if (!ok) return
+  const d = await adminApi.banUser(u.id, banned)
+  if (d.success) {
+    showToast(d.message || (banned ? '已封禁' : '已解封'))
+    load()
+  } else {
+    showToast(d.message || '操作失败', 'error')
   }
 }
 
@@ -68,8 +92,21 @@ onMounted(load)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110" fixed="right">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
+            <el-tag :type="row.banned ? 'danger' : 'success'" effect="light">
+              {{ row.banned ? '已封禁' : '正常' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.role !== 'admin'"
+              :type="row.banned ? 'success' : 'warning'"
+              size="small"
+              @click="toggleBan(row)"
+            >{{ row.banned ? '解封' : '封禁' }}</el-button>
             <el-button type="danger" size="small" @click="removeUser(row)">删除</el-button>
           </template>
         </el-table-column>

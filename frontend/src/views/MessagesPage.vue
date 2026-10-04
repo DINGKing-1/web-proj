@@ -1,11 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useWindowSize, useEventListener, useIntervalFn, refDebounced } from '@vueuse/core'
+import { useWindowSize, useEventListener, useIntervalFn } from '@vueuse/core'
 import { chatApi, productApi, uploadApi } from '@/api'
-import { formatTime, formatPrice, firstImage } from '@/api/client'
+import { formatTime, formatPrice, imgOf, onImgError } from '@/api/client'
 import { showToast } from '@/composables/ui'
+import { validateChatMedia } from '@/composables/chatMedia'
 import { useUserStore } from '@/stores/user'
+import ChatMessage from '@/components/ChatMessage.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,17 +22,29 @@ const messages = ref([])
 const draft = ref('')
 const goods = ref(null)
 const msgListEl = ref(null)
-const imgInput = ref(null)
+const mediaInput = ref(null)
 const lastId = ref(0)
-const mobileListOpen = ref(true)
 const showListOnMobile = ref(true)
+const sending = ref(false)
+const uploadingMedia = ref(false)
+/** 竞态防护：切换会话后过期响应直接丢弃 */
+let roomSeq = 0
 
 let es = null
+let sseRetryTimer = null
+let sseRetries = 0
 const { pause: pausePoll, resume: resumePoll } = useIntervalFn(() => {
   if (!es) loadMsgs()
 }, 4000)
 
 const me = computed(() => store.user)
+
+/** 同一天只在首条消息上方显示日期 */
+function dateLabelOf(m, prev) {
+  const day = String(m.createdAt || '').slice(0, 10)
+  const prevDay = prev ? String(prev.createdAt || '').slice(0, 10) : ''
+  return day && day !== prevDay ? day.replace(/-/g, '/') : ''
+}
 
 async function loadRooms() {
   const d = await chatApi.rooms()
@@ -38,6 +52,7 @@ async function loadRooms() {
 }
 
 async function openRoom(room) {
+  roomSeq += 1
   pendingSeller.value = null
   activeRoom.value = room
   showListOnMobile.value = false
@@ -49,6 +64,7 @@ async function openRoom(room) {
 }
 
 function openPendingSeller() {
+  roomSeq += 1
   activeRoom.value = null
   messages.value = []
   goods.value = null
@@ -63,22 +79,33 @@ async function loadGoods(productId) {
   if (d.success && d.product) goods.value = d.product
 }
 
-async function loadMsgs() {
-  if (!activeRoom.value) return
-  const d = await chatApi.messages(activeRoom.value.roomId, lastId.value || undefined)
+/** 是否贴近消息底部（用户上翻历史时不强制滚动） */
+function isNearBottom(threshold = 40) {
+  const el = msgListEl.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+}
+
+async function loadMsgs(forceScroll = false) {
+  const room = activeRoom.value
+  if (!room) return
+  const seq = roomSeq
+  const d = await chatApi.messages(room.roomId, lastId.value || undefined)
+  if (seq !== roomSeq) return // 会话已切换，丢弃过期响应
   if (!d.success) return
   const list = d.messages || []
+  const stick = forceScroll || isNearBottom()
   if (!lastId.value) {
     messages.value = list
     if (list.length) lastId.value = list[list.length - 1].id
-    await scrollBottom()
+    if (stick) await scrollBottom()
   } else if (list.length) {
     const known = new Set(messages.value.map((m) => m.id))
     const fresh = list.filter((m) => !known.has(m.id))
     if (fresh.length) {
       messages.value = [...messages.value, ...fresh]
       lastId.value = fresh[fresh.length - 1].id
-      await scrollBottom()
+      if (stick) await scrollBottom()
     }
   }
   await loadRooms()
@@ -87,6 +114,7 @@ async function loadMsgs() {
 
 function connectSse() {
   closeSse()
+  clearSseRetry()
   if (!activeRoom.value || typeof EventSource === 'undefined') {
     resumePoll()
     return
@@ -95,6 +123,7 @@ function connectSse() {
     const url = `/api/chat/stream/${activeRoom.value.roomId}?sinceId=${lastId.value || 0}`
     es = new EventSource(url, { withCredentials: true })
     es.addEventListener('messages', async (e) => {
+      sseRetries = 0
       try {
         const list = JSON.parse(e.data)
         if (!Array.isArray(list) || !list.length) return
@@ -103,7 +132,7 @@ function connectSse() {
         if (fresh.length) {
           messages.value = [...messages.value, ...fresh]
           lastId.value = fresh[fresh.length - 1].id
-          await scrollBottom()
+          if (isNearBottom()) await scrollBottom()
           await loadRooms()
           store.refreshUnread()
         }
@@ -112,14 +141,33 @@ function connectSse() {
       }
     })
     es.onerror = () => {
-      // SSE 断开则退回轮询
+      // 瞬时断网退避重连，避免永久退回轮询
       closeSse()
+      const roomAtFail = activeRoom.value?.roomId
+      sseRetries += 1
+      if (sseRetries > 6) {
+        resumePoll()
+        return
+      }
       resumePoll()
+      sseRetryTimer = setTimeout(() => {
+        if (activeRoom.value?.roomId === roomAtFail) {
+          connectSse()
+        }
+      }, Math.min(30000, 1000 * 2 ** sseRetries))
     }
     pausePoll()
   } catch {
     resumePoll()
   }
+}
+
+function clearSseRetry() {
+  if (sseRetryTimer) {
+    clearTimeout(sseRetryTimer)
+    sseRetryTimer = null
+  }
+  sseRetries = 0
 }
 
 function closeSse() {
@@ -135,77 +183,84 @@ async function scrollBottom() {
   if (el) el.scrollTop = el.scrollHeight
 }
 
+/** 新会话：从商品页/店铺页带着卖家信息进来时先建房 */
+async function ensureRoom() {
+  if (activeRoom.value) return true
+  if (!pendingSeller.value) return false
+  const created = await chatApi.createRoom(
+    pendingSeller.value.sellerUsername,
+    pendingSeller.value.productId
+  )
+  if (!created.success || !created.roomId) {
+    showToast(created.message || '创建会话失败', 'error')
+    return false
+  }
+  await loadRooms()
+  const room = rooms.value.find((r) => String(r.roomId) === String(created.roomId))
+  activeRoom.value =
+    room ||
+    {
+      roomId: created.roomId,
+      otherNickname: pendingSeller.value.sellerNickname,
+      otherAvatar: pendingSeller.value.sellerAvatar,
+      productId: pendingSeller.value.productId
+    }
+  pendingSeller.value = null
+  await loadGoods(activeRoom.value.productId)
+  connectSse()
+  return true
+}
+
 async function sendText() {
   const content = draft.value.trim()
-  if (!content) return
-
-  if (!activeRoom.value && pendingSeller.value) {
-    const created = await chatApi.createRoom(
-      pendingSeller.value.sellerUsername,
-      pendingSeller.value.productId
-    )
-    if (!created.success || !created.roomId) {
-      showToast(created.message || '创建会话失败', 'error')
-      return
+  if (!content || sending.value) return
+  sending.value = true
+  try {
+    if (!(await ensureRoom())) return
+    const d = await chatApi.send({
+      roomId: activeRoom.value.roomId,
+      content,
+      type: 'text',
+      productId: activeRoom.value.productId
+    })
+    if (d.success) {
+      draft.value = ''
+      // 自己发消息后总是滚动到底部
+      await loadMsgs(true)
+    } else {
+      showToast(d.message || '发送失败', 'error')
     }
-    await loadRooms()
-    const room = rooms.value.find((r) => String(r.roomId) === String(created.roomId))
-    activeRoom.value =
-      room ||
-      {
-        roomId: created.roomId,
-        otherNickname: pendingSeller.value.sellerNickname,
-        otherAvatar: pendingSeller.value.sellerAvatar,
-        productId: pendingSeller.value.productId
-      }
-    pendingSeller.value = null
-    await loadGoods(activeRoom.value.productId)
-    connectSse()
-  }
-
-  if (!activeRoom.value) return
-
-  const d = await chatApi.send({
-    roomId: activeRoom.value.roomId,
-    content,
-    type: 'text',
-    productId: activeRoom.value.productId
-  })
-  if (d.success) {
-    draft.value = ''
-    await loadMsgs()
-  } else {
-    showToast(d.message || '发送失败', 'error')
+  } finally {
+    sending.value = false
   }
 }
 
-async function onPickImage(e) {
+async function onPickMedia(e) {
   const file = e.target.files?.[0]
   e.target.value = ''
-  if (!file || !activeRoom.value) return
-  if (file.size > 10 * 1024 * 1024) {
-    showToast('图片不能超过 10MB', 'warning')
+  if (!file || uploadingMedia.value) return
+  const err = validateChatMedia(file)
+  if (err) {
+    showToast(err, 'warning')
     return
   }
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const up = await uploadApi.images(dataUrl)
-  if (!up.success) {
-    showToast(up.message || '上传失败', 'error')
-    return
+  uploadingMedia.value = true
+  try {
+    if (!(await ensureRoom())) return
+    const media = await uploadApi.chatMedia(file)
+    const d = await chatApi.send({
+      roomId: activeRoom.value.roomId,
+      content: media.url,
+      type: media.type,
+      productId: activeRoom.value.productId
+    })
+    if (d.success) await loadMsgs(true)
+    else showToast(d.message || '发送失败', 'error')
+  } catch (e2) {
+    showToast(e2.message || '发送失败，请重试', 'error')
+  } finally {
+    uploadingMedia.value = false
   }
-  const d = await chatApi.send({
-    roomId: activeRoom.value.roomId,
-    content: up.imageUrl || up.imageUrls?.[0],
-    type: 'image',
-    productId: activeRoom.value.productId
-  })
-  if (d.success) loadMsgs()
-  else showToast(d.message || '发送失败', 'error')
 }
 
 function onKeydown(e) {
@@ -219,8 +274,13 @@ function isMine(msg) {
   return me.value && msg.senderUsername === me.value.username
 }
 
-function openImage(url) {
-  if (url) window.open(url, '_blank')
+function avatarOf(msg) {
+  if (isMine(msg)) return me.value?.avatar || '/user-avatar/default.jpg'
+  return (
+    activeRoom.value?.otherAvatar ||
+    pendingSeller.value?.sellerAvatar ||
+    '/user-avatar/default.jpg'
+  )
 }
 
 function backToList() {
@@ -244,22 +304,44 @@ onMounted(async () => {
   if (q.roomId) {
     const room = rooms.value.find((r) => String(r.roomId) === String(q.roomId))
     if (room) await openRoom(room)
-  } else if (q.sellerUsername && q.productId) {
+  } else if (q.sellerUsername) {
     pendingSeller.value = {
       sellerUsername: q.sellerUsername,
       sellerNickname: q.sellerNickname || q.sellerUsername,
       sellerAvatar: q.sellerAvatar || '/user-avatar/default.jpg',
-      productId: Number(q.productId)
+      productId: q.productId ? Number(q.productId) : null
     }
     openPendingSeller()
-    await loadGoods(Number(q.productId))
+    if (q.productId) await loadGoods(Number(q.productId))
   }
   // 窄屏默认看列表
   if (isNarrow.value) showListOnMobile.value = true
 })
 
+// 同路由 query 变化（前进/后退或站内二次进入）时重新处理
+watch(
+  () => route.query,
+  async (q) => {
+    if (!q || !route.path.startsWith('/messages')) return
+    if (q.roomId) {
+      const room = rooms.value.find((r) => String(r.roomId) === String(q.roomId))
+      if (room) await openRoom(room)
+    } else if (q.sellerUsername) {
+      pendingSeller.value = {
+        sellerUsername: q.sellerUsername,
+        sellerNickname: q.sellerNickname || q.sellerUsername,
+        sellerAvatar: q.sellerAvatar || '/user-avatar/default.jpg',
+        productId: q.productId ? Number(q.productId) : null
+      }
+      openPendingSeller()
+      if (q.productId) await loadGoods(Number(q.productId))
+    }
+  }
+)
+
 onBeforeUnmount(() => {
   closeSse()
+  clearSseRetry()
   pausePoll()
 })
 </script>
@@ -335,10 +417,10 @@ onBeforeUnmount(() => {
 
           <div v-if="goods" class="goods-bar">
             <img
-              :src="firstImage(goods) || '/user-avatar/default.jpg'"
+              :src="imgOf(goods)"
               class="g-img"
               alt=""
-              @error="$event.target.src = '/user-avatar/default.jpg'"
+              @error="onImgError"
             />
             <div class="g-info">
               <router-link :to="`/product/${goods.id}`" class="g-name">{{ goods.name }}</router-link>
@@ -347,32 +429,38 @@ onBeforeUnmount(() => {
           </div>
 
           <div ref="msgListEl" class="msg-list">
-            <div
-              v-for="m in messages"
+            <ChatMessage
+              v-for="(m, idx) in messages"
               :key="m.id"
-              class="msg"
-              :class="{ mine: isMine(m) }"
-            >
-              <template v-if="m.messageType === 'image'">
-                <img
-                  :src="m.content"
-                  class="msg-img"
-                  alt="图片消息"
-                  @click="openImage(m.content)"
-                />
-              </template>
-              <div v-else class="bubble">{{ m.content }}</div>
-            </div>
+              :mine="isMine(m)"
+              :content="m.content"
+              :message-type="m.messageType || 'text'"
+              :created-at="m.createdAt"
+              :avatar="avatarOf(m)"
+              :date-label="dateLabelOf(m, messages[idx - 1])"
+            />
             <div v-if="!messages.length && !pendingSeller" class="muted text-sm empty-msg">
               暂无消息，打个招呼吧
             </div>
           </div>
 
           <footer class="composer">
-            <button class="icon-btn" type="button" title="发送图片" @click="imgInput?.click()">
-              <i class="fas fa-image"></i>
+            <button
+              class="icon-btn"
+              type="button"
+              title="发送图片或视频"
+              :disabled="uploadingMedia"
+              @click="mediaInput?.click()"
+            >
+              <i class="fas" :class="uploadingMedia ? 'fa-spinner fa-spin' : 'fa-image'"></i>
             </button>
-            <input ref="imgInput" type="file" accept="image/*" hidden @change="onPickImage" />
+            <input
+              ref="mediaInput"
+              type="file"
+              accept="image/*,video/*"
+              hidden
+              @change="onPickMedia"
+            />
             <textarea
               v-model="draft"
               class="form-textarea input"
@@ -380,7 +468,9 @@ onBeforeUnmount(() => {
               placeholder="输入消息，Enter 发送"
               @keydown="onKeydown"
             ></textarea>
-            <button type="button" class="btn btn-primary" @click="sendText">发送</button>
+            <button type="button" class="btn btn-primary" :disabled="sending" @click="sendText">
+              {{ sending ? '发送中…' : '发送' }}
+            </button>
           </footer>
         </template>
       </section>
@@ -397,8 +487,9 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   display: grid;
   grid-template-columns: 280px 1fr;
-  min-height: 560px;
-  height: calc(100vh - 170px);
+  /* 高度写死 + 内部 overflow，消息区才能独立滚动 */
+  height: calc(100vh - var(--header-h) - var(--nav-h) - 56px);
+  min-height: 480px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 22px;
@@ -407,13 +498,19 @@ onBeforeUnmount(() => {
 }
 .chat-shell.narrow {
   grid-template-columns: 1fr;
-  height: calc(100vh - 130px);
+  height: calc(100vh - var(--header-h) - var(--nav-h) - 28px);
   width: min(100% - 12px, 1000px);
+}
+.panel-left,
+.panel-right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* 关键：允许 flex 子项收缩到 0，消息列表才会出现滚动条 */
+  min-height: 0;
 }
 .panel-left {
   border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
   background: var(--surface-warm);
 }
 .panel-left.hidden,
@@ -430,6 +527,8 @@ onBeforeUnmount(() => {
 .room-list {
   overflow: auto;
   flex: 1;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 .room-item {
   width: 100%;
@@ -476,11 +575,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   display: grid;
   place-items: center;
-}
-.panel-right {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+  flex-shrink: 0;
 }
 .chat-header {
   display: flex;
@@ -488,6 +583,7 @@ onBeforeUnmount(() => {
   gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .back-list {
   display: none;
@@ -504,6 +600,7 @@ onBeforeUnmount(() => {
   background: var(--success-soft);
   padding: 4px 8px;
   border-radius: 999px;
+  flex-shrink: 0;
 }
 .goods-bar {
   display: flex;
@@ -512,6 +609,7 @@ onBeforeUnmount(() => {
   padding: 10px 14px;
   background: var(--bg-soft);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .g-img {
   width: 48px;
@@ -525,40 +623,13 @@ onBeforeUnmount(() => {
 }
 .msg-list {
   flex: 1;
-  overflow: auto;
+  /* 关键修复：不加 min-height:0 时 flex 子项最小高度=内容高度，
+     容器被撑爆且 overflow:hidden 裁切，滚动条永不出现 */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background:
-    radial-gradient(600px 300px at 10% 0%, rgba(255, 232, 212, 0.55), transparent 60%),
-    var(--surface);
-}
-.msg {
-  display: flex;
-}
-.msg.mine {
-  justify-content: flex-end;
-}
-.bubble {
-  max-width: min(260px, 78vw);
-  padding: 10px 14px;
-  border-radius: 16px;
-  background: var(--bg-soft);
-  color: var(--ink);
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.55;
-}
-.msg.mine .bubble {
-  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-  color: #fff;
-  border-bottom-right-radius: 6px;
-}
-.msg-img {
-  max-width: min(220px, 60vw);
-  border-radius: 12px;
-  cursor: pointer;
+  background: var(--surface-warm);
 }
 .empty-msg {
   text-align: center;
@@ -589,6 +660,7 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--border);
   background: var(--surface);
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  flex-shrink: 0;
 }
 .input {
   flex: 1;

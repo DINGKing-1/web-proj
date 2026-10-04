@@ -47,6 +47,7 @@ async function submit() {
 <template>
   <main class="admin-login">
     <form class="card login-card" @submit.prevent="submit">
+      <div class="logo-avatar" aria-hidden="true">优</div>
       <h1>优品汇 · 管理后台</h1>
       <p class="muted">请使用管理员账号登录</p>
       <div v-if="errorMsg" class="error">{{ errorMsg }}</div>
@@ -81,6 +82,20 @@ async function submit() {
   width: min(100%, 420px);
   padding: 36px 30px;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+.logo-avatar {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  box-shadow: 0 12px 28px rgba(212, 136, 60, 0.35);
 }
 .login-card h1 {
   margin: 0 0 8px;

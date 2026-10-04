@@ -1,6 +1,7 @@
 <script setup>
-import { nextTick } from 'vue'
+import { computed, nextTick } from 'vue'
 import AppSelect from '@/components/AppSelect.vue'
+import { useCategories } from '@/composables/categories'
 
 /** 商品筛选栏：排序 / 价格 / 成色，样式对齐设计系统 */
 const props = defineProps({
@@ -27,18 +28,12 @@ const CONDITIONS = [
   { label: '明显使用', value: '明显使用' },
   { label: '重度使用', value: '重度使用' }
 ]
-const CATEGORIES = [
+// 与导航共用同一份分类（后台可维护），避免两处硬编码失同步
+const { categories } = useCategories()
+const CATEGORY_OPTIONS = computed(() => [
   { label: '全部分类', value: '' },
-  { label: '手机', value: '手机' },
-  { label: '笔记本电脑', value: '笔记本电脑' },
-  { label: '耳机', value: '耳机' },
-  { label: '相机', value: '相机' },
-  { label: '手机壳', value: '手机壳' },
-  { label: '空调', value: '空调' },
-  { label: '冰箱', value: '冰箱' },
-  { label: '半身裙', value: '半身裙' },
-  { label: '其他', value: '其他' }
-]
+  ...categories.value.filter((c) => c !== '全部').map((c) => ({ label: c, value: c }))
+])
 
 async function onSortChange(v) {
   emit('update:sortBy', v)
@@ -86,7 +81,7 @@ function onReset() {
         <label id="f-cat-label">分类</label>
         <AppSelect
           :model-value="category"
-          :options="CATEGORIES"
+          :options="CATEGORY_OPTIONS"
           placeholder="全部分类"
           aria-labelledby="f-cat-label"
           @update:model-value="onCategoryChange"

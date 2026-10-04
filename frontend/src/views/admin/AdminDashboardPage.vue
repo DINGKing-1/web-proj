@@ -2,13 +2,15 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
+import { isAuthFailure, isTransient } from '@/api/client'
+import { showToast } from '@/composables/ui'
 import VChart from '@/components/chart.js'
 import AdminShell from '@/components/AdminShell.vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const store = useUserStore()
-const stats = reactive({ totalProducts: 0, totalUsers: 0, totalComments: 0 })
+const stats = reactive({ totalProducts: 0, totalUsers: 0, totalComments: 0, totalOrders: 0, gmv: 0, pendingReports: 0 })
 const products = ref([])
 const loading = ref(true)
 
@@ -92,10 +94,16 @@ async function load() {
     stats.totalProducts = s.totalProducts || 0
     stats.totalUsers = s.totalUsers || 0
     stats.totalComments = s.totalComments || 0
+    stats.totalOrders = s.totalOrders || 0
+    stats.gmv = s.gmv || 0
+    stats.pendingReports = s.pendingReports || 0
     products.value = p.success ? p.products || [] : []
-  } else {
+    if (!p.success && isTransient(p)) showToast('商品数据加载失败，图表可能不完整', 'warning')
+  } else if (isAuthFailure(s)) {
     store.setUser(null)
     router.replace('/admin')
+  } else {
+    showToast(isTransient(s) ? '网络异常，请稍后重试' : s.message || '加载统计失败', 'error')
   }
   loading.value = false
 }
@@ -124,6 +132,24 @@ onMounted(load)
         <el-card shadow="never" class="stat">
           <div class="label">评论总数</div>
           <div class="value">{{ stats.totalComments }}</div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="never" class="stat">
+          <div class="label">订单总数</div>
+          <div class="value">{{ stats.totalOrders }}</div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="never" class="stat">
+          <div class="label">成交金额 GMV</div>
+          <div class="value">¥{{ Number(stats.gmv || 0).toFixed(2) }}</div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="never" class="stat">
+          <div class="label">待处理举报</div>
+          <div class="value">{{ stats.pendingReports }}</div>
         </el-card>
       </el-col>
     </el-row>

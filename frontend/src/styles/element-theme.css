@@ -48,7 +48,10 @@
   --el-box-shadow-dark: 0 16px 48px rgba(120, 70, 25, 0.12);
 
   --el-font-family: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --el-font-size-base: 14px;
+  --el-font-size-base: 15px;
+  --el-font-size-small: 13px;
+  --el-font-size-medium: 16px;
+  --el-font-size-large: 18px;
 }
 
 /* Button 圆角更贴合本站 */

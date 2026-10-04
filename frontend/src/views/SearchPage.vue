@@ -1,7 +1,9 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { productApi } from '@/api'
+import { productApi, shopApi } from '@/api'
+import { getSearchHistory, pushSearchHistory, clearSearchHistory, getBrowseHistory, clearBrowseHistory, formatPrice, onImgError } from '@/api/client'
+import { showToast } from '@/composables/ui'
 import ProductCard from '@/components/ProductCard.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -22,8 +24,15 @@ const sortBy = ref('newest')
 const minPrice = ref('')
 const maxPrice = ref('')
 const condition = ref('')
+const category = ref('')
+const history = ref(getSearchHistory())
+const hotWords = ref([])
+const browseHistory = ref(getBrowseHistory())
+/** 竞态防护：快速改筛选/翻页时丢弃过期响应 */
+let loadSeq = 0
 
 async function load(p = 0) {
+  const seq = ++loadSeq
   const q = (route.query.q || '').trim()
   query.value = q
   if (!q) {
@@ -40,13 +49,17 @@ async function load(p = 0) {
     sortBy: sortBy.value || undefined,
     minPrice: minPrice.value === '' ? undefined : minPrice.value,
     maxPrice: maxPrice.value === '' ? undefined : maxPrice.value,
-    condition: condition.value || undefined
+    condition: condition.value || undefined,
+    category: category.value || undefined
   })
+  if (seq !== loadSeq) return
   if (d.success) {
     products.value = d.products || []
     total.value = d.total || 0
     totalPages.value = d.totalPages || 0
     page.value = p
+  } else {
+    showToast(d.message || '搜索失败，请稍后重试', 'error')
   }
   loading.value = false
 }
@@ -60,13 +73,31 @@ function resetFilters() {
   minPrice.value = ''
   maxPrice.value = ''
   condition.value = ''
+  category.value = ''
   load(0)
 }
 
 function doSearch() {
   const q = query.value.trim()
   if (!q) return
+  pushSearchHistory(q)
+  history.value = getSearchHistory()
   router.push({ path: '/search', query: { q } })
+}
+
+function clearHistory() {
+  clearSearchHistory()
+  history.value = []
+}
+
+function clearBrowse() {
+  clearBrowseHistory()
+  browseHistory.value = []
+}
+
+function useWord(w) {
+  query.value = w
+  doSearch()
 }
 
 watch(
@@ -74,7 +105,14 @@ watch(
   () => load(0)
 )
 
-onMounted(() => load(0))
+onMounted(() => {
+  load(0)
+  shopApi.hotWords().then((d) => {
+    if (d.success) hotWords.value = d.words || []
+  })
+  if (route.query.q) pushSearchHistory(String(route.query.q))
+  history.value = getSearchHistory()
+})
 </script>
 
 <template>
@@ -100,6 +138,8 @@ onMounted(() => load(0))
           v-model:min-price="minPrice"
           v-model:max-price="maxPrice"
           v-model:condition="condition"
+          v-model:category="category"
+          show-category
           @apply="applyFilters"
           @reset="resetFilters"
         />
@@ -117,17 +157,138 @@ onMounted(() => load(0))
         <PaginationBar :page="page" :total-pages="totalPages" @change="load" />
       </template>
 
-      <EmptyState
-        v-else
-        icon="fa-magnifying-glass"
-        title="开始搜索"
-        desc="输入关键词搜索你想要的商品"
-      />
+      <template v-else>
+        <section v-if="hotWords.length" class="chip-section">
+          <div class="chip-head">
+            <h2 class="h3">热门搜索</h2>
+          </div>
+          <div class="chips">
+            <button
+              v-for="w in hotWords"
+              :key="w"
+              type="button"
+              class="chip"
+              @click="useWord(w)"
+            >
+              {{ w }}
+            </button>
+          </div>
+        </section>
+
+        <section v-if="history.length" class="chip-section">
+          <div class="chip-head">
+            <h2 class="h3">搜索历史</h2>
+            <button type="button" class="link-btn" @click="clearHistory">清空</button>
+          </div>
+          <div class="chips">
+            <button
+              v-for="w in history"
+              :key="w"
+              type="button"
+              class="chip"
+              @click="useWord(w)"
+            >
+              {{ w }}
+            </button>
+          </div>
+        </section>
+
+        <section v-if="browseHistory.length" class="chip-section">
+          <div class="chip-head">
+            <h2 class="h3">浏览过的商品</h2>
+            <button type="button" class="link-btn" @click="clearBrowse">清空</button>
+          </div>
+          <div class="browse-grid">
+            <router-link
+              v-for="b in browseHistory.slice(0, 8)"
+              :key="'b' + b.id"
+              :to="`/product/${b.id}`"
+              class="browse-card"
+            >
+              <img :src="b.image" alt="" @error="onImgError" />
+              <div class="b-name">{{ b.name }}</div>
+              <div class="b-price">¥{{ formatPrice(b.price) }}</div>
+            </router-link>
+          </div>
+        </section>
+
+        <EmptyState
+          v-if="!hotWords.length && !history.length && !browseHistory.length"
+          icon="fa-magnifying-glass"
+          title="开始搜索"
+          desc="输入关键词搜索你想要的商品"
+        />
+      </template>
     </div>
   </main>
 </template>
 
 <style scoped>
+.chip-section {
+  margin-bottom: 22px;
+}
+.chip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+}
+.link-btn {
+  color: var(--muted);
+  font-size: 12px;
+}
+.browse-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.browse-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  padding-bottom: 10px;
+}
+.browse-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+.b-name {
+  padding: 8px 10px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-price {
+  padding: 0 10px;
+  color: var(--accent-deep);
+  font-weight: 700;
+  font-size: 13px;
+}
+.link-btn:hover {
+  color: var(--danger);
+}
 .page-head {
   display: flex;
   justify-content: space-between;
@@ -143,8 +304,8 @@ onMounted(() => load(0))
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
 }
 .skeleton-card {
   overflow: hidden;
@@ -177,6 +338,11 @@ onMounted(() => load(0))
   }
   100% {
     background-position: -200% 0;
+  }
+}
+@media (max-width: 1200px) {
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 @media (max-width: 1024px) {

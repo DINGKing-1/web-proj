@@ -1,19 +1,33 @@
 <script setup>
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { productApi, uploadApi } from '@/api'
-import { CATEGORIES } from '@/api/client'
+import { useCategories } from '@/composables/categories'
 import AppSelect from '@/components/AppSelect.vue'
+import LoadingBlock from '@/components/LoadingBlock.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import { showToast } from '@/composables/ui'
 import { useUserStore } from '@/stores/user'
 
+const route = useRoute()
 const router = useRouter()
 const store = useUserStore()
+
+/** 编辑模式：/upload?edit=<productId> */
+const editId = computed(() => {
+  const raw = route.query.edit
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : null
+})
+const isEdit = computed(() => !!editId.value)
+const pageLoading = ref(false)
+const loadError = ref('')
 
 const form = reactive({
   name: '',
   category: '',
   secondHandPrice: '',
+  originalPrice: '',
   quantity: 1,
   condition: '',
   description: ''
@@ -24,11 +38,14 @@ const uploading = ref(false)
 const submitting = ref(false)
 
 const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
-const categoryOptions = CATEGORIES.filter((x) => x !== '全部').map((c) => ({ label: c, value: c }))
+const { categories } = useCategories()
+const categoryOptions = computed(() =>
+  categories.value.filter((x) => x !== '全部').map((c) => ({ label: c, value: c }))
+)
 const conditionOptions = CONDITIONS.map((c) => ({ label: c, value: c }))
 const MAX_SIZE = 10 * 1024 * 1024
 
-const errors = reactive({ name: '', category: '', secondHandPrice: '', condition: '' })
+const errors = reactive({ name: '', category: '', secondHandPrice: '', originalPrice: '', condition: '' })
 
 function validate() {
   errors.name = form.name.trim() ? '' : '请输入商品名称'
@@ -39,6 +56,15 @@ function validate() {
       : Number(form.secondHandPrice) <= 0
         ? '售价必须大于 0'
         : ''
+  // 原价（划线价）选填：不填默认为售价；填写则必须 ≥ 售价
+  errors.originalPrice =
+    form.originalPrice === '' || form.originalPrice === null || form.originalPrice === undefined
+      ? ''
+      : !Number.isFinite(Number(form.originalPrice))
+        ? '请输入有效金额'
+        : Number(form.originalPrice) < Number(form.secondHandPrice)
+          ? '原价不能低于售价'
+          : ''
   errors.condition = form.condition ? '' : '请选择成色'
   return !Object.values(errors).some(Boolean)
 }
@@ -47,7 +73,7 @@ function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
+    reader.onerror = () => reject(new Error('read-failed'))
     reader.readAsDataURL(file)
   })
 }
@@ -55,7 +81,7 @@ function readFileAsDataURL(file) {
 async function onFilesSelected(e) {
   const files = Array.from(e.target.files || [])
   e.target.value = ''
-  if (!files.length) return
+  if (!files.length || uploading.value) return
 
   const valid = []
   for (const f of files) {
@@ -72,23 +98,31 @@ async function onFilesSelected(e) {
   if (!valid.length) return
 
   uploading.value = true
-  const bases = []
-  const localPreviews = []
-  for (const f of valid) {
-    const dataUrl = await readFileAsDataURL(f)
-    localPreviews.push(dataUrl)
-    bases.push(dataUrl)
-  }
-  previews.value = [...previews.value, ...localPreviews]
+  try {
+    const bases = []
+    const localPreviews = []
+    try {
+      for (const f of valid) {
+        const dataUrl = await readFileAsDataURL(f)
+        localPreviews.push(dataUrl)
+        bases.push(dataUrl)
+      }
+    } catch {
+      showToast('图片读取失败，请重试', 'error')
+      return
+    }
+    previews.value = [...previews.value, ...localPreviews]
 
-  const d = await uploadApi.images(bases)
-  uploading.value = false
-  if (d.success && d.imageUrls?.length) {
-    imageUrls.value = [...imageUrls.value, ...d.imageUrls]
-    showToast(`已上传 ${d.imageUrls.length} 张图片`)
-  } else {
-    previews.value = previews.value.slice(0, previews.value.length - localPreviews.length)
-    showToast(d.message || '图片上传失败', 'error')
+    const d = await uploadApi.images(bases)
+    if (d.success && d.imageUrls?.length) {
+      imageUrls.value = [...imageUrls.value, ...d.imageUrls]
+      showToast(`已上传 ${d.imageUrls.length} 张图片`)
+    } else {
+      previews.value = previews.value.slice(0, previews.value.length - localPreviews.length)
+      showToast(d.message || '图片上传失败', 'error')
+    }
+  } finally {
+    uploading.value = false // 无论成败都复位，避免卡死
   }
 }
 
@@ -114,6 +148,37 @@ function onDrop(e, index) {
   previews.value = prev
 }
 
+async function loadForEdit() {
+  if (!editId.value) return
+  pageLoading.value = true
+  loadError.value = ''
+  const d = await productApi.detail(editId.value)
+  pageLoading.value = false
+  if (!d.success || !d.product) {
+    loadError.value = d.message || '商品不存在或已被删除'
+    return
+  }
+  const p = d.product
+  if (store.user && p.sellerUsername && p.sellerUsername !== store.user.username) {
+    loadError.value = '只能编辑自己的商品'
+    return
+  }
+  form.name = p.name || ''
+  form.category = p.category || ''
+  form.secondHandPrice = p.secondHandPrice ?? ''
+  form.originalPrice = p.originalPrice ?? ''
+  form.quantity = p.quantity ?? 1
+  form.condition = p.itemCondition || p.condition || ''
+  form.description = p.description || ''
+  const imgs = p.imageUrls?.length
+    ? p.imageUrls
+    : String(p.imageUrl || '').split(',').filter(Boolean)
+  imageUrls.value = [...imgs]
+  previews.value = [...imgs]
+}
+
+onMounted(loadForEdit)
+
 async function submit() {
   if (!store.user) {
     showToast('请先登录', 'warning')
@@ -130,22 +195,42 @@ async function submit() {
   }
   submitting.value = true
   const price = Number(form.secondHandPrice)
-  const d = await productApi.create({
+  // 原价（划线价）选填：不填默认为售价
+  const original =
+    form.originalPrice === '' || form.originalPrice === null || form.originalPrice === undefined
+      ? price
+      : Number(form.originalPrice)
+  const payload = {
     name: form.name.trim(),
     category: form.category,
     description: form.description.trim(),
-    originalPrice: price,
+    originalPrice: original,
     secondHandPrice: price,
     condition: form.condition,
     imageUrl: imageUrls.value,
     quantity: Number(form.quantity) || 1
-  })
+  }
+  const d = isEdit.value
+    ? await productApi.update(editId.value, payload)
+    : await productApi.create(payload)
   submitting.value = false
   if (d.success) {
-    showToast('商品发布成功')
-    setTimeout(() => router.push(`/product/${d.productId}`), 400)
+    // 开启发布审核时，新商品先进待审队列，前台暂不可见
+    if (!isEdit.value && d.status === 'pending') {
+      showToast('已提交，等待管理员审核通过后上架')
+      setTimeout(() => router.push('/user'), 600)
+      return
+    }
+    if (isEdit.value && d.status === 'pending') {
+      showToast('修改已提交，重新排队审核')
+      setTimeout(() => router.push('/user'), 600)
+      return
+    }
+    showToast(isEdit.value ? '商品已更新' : '商品发布成功')
+    const targetId = isEdit.value ? editId.value : d.productId
+    setTimeout(() => router.push(`/product/${targetId}`), 400)
   } else {
-    showToast(d.message || '发布失败', 'error')
+    showToast(d.message || (isEdit.value ? '保存失败' : '发布失败'), 'error')
   }
 }
 </script>
@@ -153,8 +238,20 @@ async function submit() {
 <template>
   <main class="page">
     <div class="container narrow">
-      <h1 class="h1">发布商品</h1>
-      <p class="muted mb-4">把闲置好物分享给需要的人</p>
+      <template v-if="pageLoading">
+        <LoadingBlock text="加载商品信息…" />
+      </template>
+      <EmptyState
+        v-else-if="loadError"
+        icon="fa-box-open"
+        :title="loadError"
+        desc="返回我的商品重新选择"
+      >
+        <button type="button" class="btn btn-primary" @click="router.push('/user')">我的商品</button>
+      </EmptyState>
+      <template v-else>
+      <h1 class="h1">{{ isEdit ? '编辑商品' : '发布商品' }}</h1>
+      <p class="muted mb-4">{{ isEdit ? '修改后立即对买家生效' : '把闲置好物分享给需要的人' }}</p>
 
       <section class="card card-pad block">
         <div class="card-head">
@@ -230,6 +327,21 @@ async function submit() {
             />
             <p v-if="errors.secondHandPrice" class="field-error">{{ errors.secondHandPrice }}</p>
           </div>
+          <div class="form-group">
+            <label for="up-origin">原价（划线价，选填）</label>
+            <input
+              id="up-origin"
+              v-model="form.originalPrice"
+              class="form-input"
+              :class="{ invalid: errors.originalPrice }"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="不填默认与售价相同"
+              @input="errors.originalPrice = ''"
+            />
+            <p v-if="errors.originalPrice" class="field-error">{{ errors.originalPrice }}</p>
+          </div>
         </div>
 
         <div class="row">
@@ -273,9 +385,10 @@ async function submit() {
       <div class="footer-actions">
         <button type="button" class="btn btn-outline btn-lg" @click="router.back()">取消</button>
         <button type="button" class="btn btn-primary btn-lg" :disabled="submitting" @click="submit">
-          {{ submitting ? '发布中…' : '发布商品' }}
+          {{ submitting ? (isEdit ? '保存中…' : '发布中…') : isEdit ? '保存修改' : '发布商品' }}
         </button>
       </div>
+      </template>
     </div>
   </main>
 </template>

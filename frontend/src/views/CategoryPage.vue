@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { productApi } from '@/api'
+import { showToast } from '@/composables/ui'
 import ProductCard from '@/components/ProductCard.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import FilterBar from '@/components/FilterBar.vue'
@@ -22,7 +23,11 @@ const minPrice = ref('')
 const maxPrice = ref('')
 const condition = ref('')
 
+/** 竞态防护：快速切换分类时丢弃过期响应 */
+let loadSeq = 0
+
 async function load(p = 0) {
+  const seq = ++loadSeq
   loading.value = true
   categoryName.value = route.params.name || '全部'
   const params = {
@@ -42,11 +47,14 @@ async function load(p = 0) {
     categoryName.value = '店铺好物'
   }
   const d = await productApi.list(params)
+  if (seq !== loadSeq) return // 已切换分类，丢弃过期响应
   if (d.success) {
     products.value = d.products || []
     total.value = d.total || 0
     totalPages.value = d.totalPages || 0
     page.value = p
+  } else {
+    showToast(d.message || '商品加载失败', 'error')
   }
   loading.value = false
 }
@@ -121,8 +129,8 @@ onMounted(() => load(0))
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
 }
 .skeleton-card {
   overflow: hidden;

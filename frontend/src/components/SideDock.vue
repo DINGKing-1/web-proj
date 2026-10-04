@@ -6,12 +6,15 @@ import { useUserStore } from '@/stores/user'
 const route = useRoute()
 const router = useRouter()
 const store = useUserStore()
-const expanded = ref(false)
+/** 侧边栏常开，不随悬停收起 */
+const expanded = ref(true)
 
 const items = computed(() => [
   { key: 'home', icon: 'fa-house', label: '首页', to: '/' },
-  { key: 'category', icon: 'fa-table-cells-large', label: '分类', to: '/category/全部' },
+  { key: 'support', icon: 'fa-headset', label: '客服', to: '/support' },
   { key: 'messages', icon: 'fa-comment-dots', label: '消息', to: '/messages', badge: store.unread },
+  { key: 'notify', icon: 'fa-bell', label: '通知', to: '/notifications', badge: store.notifyUnread },
+  { key: 'publish', icon: 'fa-plus', label: '发布', to: '/upload', accent: true },
   { key: 'orders', icon: 'fa-box', label: '订单', to: '/my-orders', badge: (store.user?.buyerOrderCount || 0) + (store.user?.sellerOrderCount || 0) },
   { key: 'favorites', icon: 'fa-heart', label: '收藏', to: '/favorites' },
   { key: 'cart', icon: 'fa-shopping-bag', label: '购物车', to: '/cart', badge: store.cartCount },
@@ -19,7 +22,7 @@ const items = computed(() => [
 ])
 
 function go(item) {
-  if (!store.user && ['messages', 'orders', 'favorites', 'cart', 'user'].includes(item.key)) {
+  if (!store.user && ['messages', 'orders', 'favorites', 'cart', 'user', 'publish', 'notify', 'support'].includes(item.key)) {
     router.push({ path: '/login', query: { redirect: item.to } })
     return
   }
@@ -33,19 +36,14 @@ function goTop() {
 function isActive(item) {
   const path = route.path
   if (item.to === '/') return path === '/'
-  if (item.key === 'category') return path.startsWith('/category')
+  if (item.key === 'support') return path.startsWith('/support')
+  if (item.key === 'publish') return path.startsWith('/upload')
   return path === item.to || path.startsWith(item.to + '/')
 }
 </script>
 
 <template>
-  <aside
-    class="side-dock liquid-glass"
-    :class="{ expanded }"
-    aria-label="快捷导航"
-    @mouseenter="expanded = true"
-    @mouseleave="expanded = false"
-  >
+  <aside class="side-dock liquid-glass expanded" aria-label="快捷导航">
     <div class="dock-glow" aria-hidden="true"></div>
     <div class="dock-items">
       <button
@@ -53,7 +51,7 @@ function isActive(item) {
         :key="item.key"
         type="button"
         class="dock-item"
-        :class="{ active: isActive(item) }"
+        :class="{ active: isActive(item), accent: item.accent }"
         :title="item.label"
         @click="go(item)"
       >
@@ -89,8 +87,8 @@ function isActive(item) {
   top: 50%;
   transform: translateY(-50%);
   z-index: var(--z-sticky);
-  width: 48px;
-  padding: 8px 6px;
+  width: 78px;
+  padding: 10px 8px;
   border-radius: 22px;
   color: var(--ink-soft);
   isolation: isolate;
@@ -113,8 +111,6 @@ function isActive(item) {
     inset -1px 0 0 rgba(255, 236, 214, 0.35);
   backdrop-filter: blur(28px) saturate(1.6) brightness(1.02);
   -webkit-backdrop-filter: blur(28px) saturate(1.6) brightness(1.02);
-
-  transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1), padding 0.28s ease, box-shadow 0.25s ease;
   overflow: hidden;
 }
 
@@ -226,28 +222,46 @@ function isActive(item) {
     0 2px 8px rgba(212, 136, 60, 0.12);
 }
 
+/* 中间发布入口：暖金强调 */
+.dock-item.accent {
+  background: linear-gradient(160deg, var(--accent), var(--accent-deep));
+  color: #fff;
+  box-shadow:
+    0 6px 16px rgba(212, 136, 60, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.dock-item.accent:hover {
+  background: linear-gradient(160deg, var(--accent-deep), var(--accent));
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow:
+    0 8px 20px rgba(212, 136, 60, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
 .icon-wrap {
   position: relative;
   width: 22px;
   height: 22px;
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .dock-label {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 650;
   letter-spacing: 0.02em;
-  max-width: 0;
-  opacity: 0;
+  line-height: 1.2;
+  color: inherit;
+  max-width: 64px;
+  opacity: 1;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width 0.22s ease, opacity 0.18s ease;
 }
 
 .side-dock.expanded .dock-label {
-  max-width: 56px;
+  max-width: 64px;
   opacity: 1;
 }
 
@@ -255,13 +269,13 @@ function isActive(item) {
   position: absolute;
   top: -2px;
   right: -7px;
-  min-width: 14px;
-  height: 14px;
+  min-width: 15px;
+  height: 15px;
   padding: 0 3px;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   display: grid;
   place-items: center;
@@ -279,8 +293,8 @@ function isActive(item) {
 @media (max-width: 768px) {
   .side-dock {
     right: 8px;
-    width: 42px;
-    padding: 6px 5px;
+    width: 68px;
+    padding: 8px 6px;
     border-radius: 18px;
   }
   .side-dock.expanded {
@@ -294,6 +308,10 @@ function isActive(item) {
     width: 20px;
     height: 20px;
     font-size: 12px;
+  }
+  .dock-label {
+    font-size: 11px;
+    max-width: 56px;
   }
 }
 </style>

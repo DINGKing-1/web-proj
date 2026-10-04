@@ -1,12 +1,12 @@
 <script setup>
 import { computed } from 'vue'
-import { firstImage, formatPrice } from '@/api/client'
+import { imgOf, formatPrice, onImgError } from '@/api/client'
 
 const props = defineProps({
   product: { type: Object, required: true }
 })
 
-const image = computed(() => firstImage(props.product) || '/user-avatar/default.jpg')
+const image = computed(() => imgOf(props.product))
 </script>
 
 <template>
@@ -16,9 +16,12 @@ const image = computed(() => firstImage(props.product) || '/user-avatar/default.
         :src="image"
         :alt="product.name"
         loading="lazy"
-        @error="$event.target.src = '/user-avatar/default.jpg'"
+        @error="onImgError"
       />
-      <span v-if="product.status && product.status !== 'active'" class="status-chip">已下架</span>
+      <span
+        v-if="product.status && product.status !== 'active'"
+        class="status-chip"
+      >{{ product.status === 'sold' ? '已售出' : product.status === 'pending' ? '审核中' : product.status === 'rejected' ? '已驳回' : '已下架' }}</span>
     </div>
     <div class="body">
       <h3 class="title">{{ product.name }}</h3>
@@ -34,6 +37,9 @@ const image = computed(() => firstImage(props.product) || '/user-avatar/default.
         <i class="fas fa-fire"></i>
         <span v-if="product.salesCount > 0">已售 {{ product.salesCount }} 件</span>
         <span v-else>暂无销量</span>
+        <span class="views" v-if="product.viewCount != null">
+          <i class="fas fa-eye"></i> {{ product.viewCount }}
+        </span>
       </div>
     </div>
   </router-link>
@@ -87,14 +93,16 @@ const image = computed(() => firstImage(props.product) || '/user-avatar/default.
 }
 .title {
   margin: 0;
-  font-size: 14.5px;
-  font-weight: 600;
+  font-size: 15.5px;
+  font-weight: 700;
   line-height: 1.45;
+  letter-spacing: -0.01em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   min-height: 2.9em;
+  color: var(--ink);
 }
 .meta {
   display: flex;
@@ -102,23 +110,35 @@ const image = computed(() => firstImage(props.product) || '/user-avatar/default.
   gap: 8px;
 }
 .cond {
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--muted);
 }
 .price-row {
   display: flex;
   align-items: baseline;
 }
+.price-row .price {
+  font-size: 18px;
+  font-weight: 800;
+}
 .sales-line {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 550;
   color: var(--muted);
 }
 .sales-line i {
   font-size: 11px;
   color: var(--accent);
   opacity: 0.85;
+}
+.views {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>

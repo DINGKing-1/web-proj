@@ -17,16 +17,20 @@ const { width } = useWindowSize()
 const isMobile = computed(() => width.value < 768)
 
 function refreshAll() {
-  store.refreshSession()
-  store.refreshCartCount()
-  store.refreshUnread()
+  // 未登录无需轮询；网络/5xx 瞬时故障静默重试（store 内部已区分，不会误登出）
+  if (!store.user) return
+  Promise.allSettled([
+    store.refreshSession(),
+    store.refreshCartCount(),
+    store.refreshUnread()
+  ])
 }
 
 onMounted(() => refreshAll())
 
 const { pause, resume } = useIntervalFn(() => {
   if (document.visibilityState === 'visible') refreshAll()
-}, 5000)
+}, 15000)
 
 useEventListener(document, 'visibilitychange', () => {
   if (document.visibilityState === 'visible') {
