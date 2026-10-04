@@ -1,106 +1,103 @@
 # 优品汇 - 二手交易平台 系统分析报告
 
-> **状态说明（2026-10）**：本文档描述的是重构前的 Thymeleaf SSR 版本。当前前端已改为 Vue 3 SPA（`frontend/`），由 `SpaController` 回退到 `index.html`；后端 REST API 与数据库模型基本未变。最新工程说明见根目录 `AGENT.md`。
+> **状态说明（2026-10 更新）**：本文档已对齐当前架构。前端为 **Vue 3 SPA**（源码 `frontend/`，构建产物由 Spring Boot 静态托管），页面路由由 `SpaController` 回退到 `index.html`；后端 REST API。更细的工程约定、API 清单与业务规则见根目录 `AGENT.md`。
+>
+> 历史版本（Thymeleaf SSR + 原生 JS `App` 命名空间）已完全移除，本文不再描述。
 
 ## 一、项目概述
 
 - **项目名称**：优品汇 (secondhand-mall)
-- **项目类型**：B2C 二手商品交易平台（毕业设计）
-- **架构模式**：前后端不分离，Thymeleaf 服务端渲染 (SSR)（**历史版本**；现行前端为 Vue 3 SPA）
-- **运行端口**：localhost:8080
+- **项目类型**：B2C / C2C 二手商品交易平台（毕业设计）
+- **架构模式**：前后端分离 —— Vue 3 SPA + Spring Boot REST API
+- **运行端口**：localhost:8080（前端开发代理 5173 → 8080）
 - **数据库**：MySQL 8.0+，库名 seconddata
+- **表结构管理**：Flyway（`ddl-auto=validate`）
 
 ## 二、技术栈
 
 | 层级 | 技术选型 |
 |------|----------|
+| 前端 | Vue 3 + Vue Router + Pinia + Vite 6 + Element Plus（按需）+ axios/fetch |
 | 后端框架 | Java 17 + Spring Boot 3.2.7 |
-| 模板引擎 | Thymeleaf（服务端渲染页面） |
-| ORM | Spring Data JPA（Hibernate，ddl-auto=update） |
-| 安全框架 | Spring Security + BCrypt 密码加密 + HttpSession 认证 |
+| ORM | Spring Data JPA（Hibernate 6）+ Flyway |
+| 安全 | Spring Security（permitAll）+ BCrypt + HttpSession 单点会话 + SessionValidationFilter |
+| 缓存 | Caffeine（单机）/ Redis（生产可选） |
+| 接口文档 | springdoc OpenAPI（/swagger-ui.html） |
 | 数据库 | MySQL 8.0+ |
-| 前端 | HTML5 + CSS3 + Vanilla JavaScript（App 命名空间封装） |
-| 图标库 | Font Awesome 6.4.0 |
-| 字体 | Google Fonts Inter + 系统中文字体 |
 
 ## 三、系统架构
 
 ### 3.1 总体架构
 
-采用经典的 MVC 三层架构：
+```
+浏览器 (Vue 3 SPA)
+    ↓ fetch /api/**
+SpaController（业务路由 → forward:/index.html）
+ApiController 等 REST 控制器
+    ↓
+Service（业务 + 审计 AOP）
+    ↓
+Repository (JPA) → MySQL
+```
+
+### 3.2 目录结构（现行）
 
 ```
-浏览器 → Controller（页面路由 + REST API）→ Service（业务逻辑）→ Repository（JPA 数据访问）→ MySQL
-```
+frontend/                          # Vue 3 + Vite 源码
+├── src/
+│   ├── api/client.js              # fetch 封装（401 分流、金额工具）
+│   ├── api/index.js               # 全部后端 API
+│   ├── router/index.js            # 路由 + 守卫
+│   ├── stores/user.js             # Pinia 登录态 / 角标
+│   ├── components/                # Header / ProductCard / AdminShell …
+│   └── views/                     # 业务页 + admin/*
+└── vite.config.js                 # build.outDir → src/main/resources/static
 
-### 3.2 目录结构
-
-```
 src/main/java/com/secondhand/mall/
-├── SecondhandMallApplication.java       # 启动类 + JVM ShutdownHook
-├── controller/                          # 控制器层（7个）
-│   ├── PageController.java              # 页面路由（返回 Thymeleaf 模板名）
-│   ├── ApiController.java               # 核心 REST API（商品/购物车/订单/地址/评论）
-│   ├── ChatApiController.java           # 聊天 API（聊天室/消息）
-│   ├── FavoriteApiController.java       # 收藏 API
-│   ├── AdminApiController.java          # 管理后台 API
-│   ├── UserController.java              # 用户头像上传 API
-│   ├── BaseApiController.java           # 基类（统一响应构建 + 登录校验）
-│   └── ShutdownController.java          # /internal/shutdown 端点
-├── service/                             # 服务层（10个）
-│   ├── ProductService.java              # 商品服务（头像跟随机制）
-│   ├── OrderService.java                # 订单服务（悲观锁并发安全）
-│   ├── UserService.java                 # 用户服务（BCrypt + Session）
-│   ├── CartService.java                 # 购物车服务
-│   ├── ChatService.java                 # 聊天服务（N+1 查询优化）
-│   ├── FavoriteService.java             # 收藏服务
-│   ├── CommentService.java              # 评论服务
-│   ├── AddressService.java              # 地址服务
-│   ├── AdminService.java                # 管理服务（级联删除）
-│   └── FileUploadService.java           # 文件上传（Base64 解码存储）
-├── entity/                              # JPA 实体（9个）
-├── repository/                          # Spring Data JPA Repository（9个）
-├── config/                              # 配置类
-│   ├── SecurityConfig.java              # Spring Security 配置
-│   ├── SessionValidationFilter.java     # Session 一致性校验过滤器
-│   ├── GlobalModelAdvice.java           # 全局 Model 增强（注入登录状态）
-│   ├── DataInitializer.java             # 启动初始化（admin 账号 + 密码修复）
-│   ├── WebConfig.java                   # 静态资源映射
-│   └── StartupRunner.java               # 启动执行器
-├── dto/                                 # 数据传输对象
-│   ├── ApiResponse.java                 # 统一 API 响应格式
-│   ├── LoginRequest.java                # 登录请求体
-│   ├── RegisterRequest.java             # 注册请求体
-│   └── CartItemDTO.java                 # 购物车项 DTO
-└── exception/                           # 自定义异常
-    ├── UnauthorizedException.java       # 未授权异常
-    └── NotFoundException.java           # 资源不存在异常
+├── controller/                    # REST 控制器（含 SpaController）
+├── service/                       # 业务服务（订单/商品/优惠券/提现/议价…）
+├── entity/                        # JPA 实体
+├── repository/                    # Spring Data JPA
+├── config/                        # Security / SessionFilter / Flyway 相关
+├── aspect/AuditAspect.java        # @Audited 操作审计
+└── exception/                     # Unauthorized / Forbidden / NotFound
 
 src/main/resources/
-├── application.properties               # 应用配置
-├── templates/                           # Thymeleaf 模板（17个页面）
-│   ├── index.html                       # 首页（Premium 设计）
-│   ├── category.html                    # 分类页（客户端 API 分页）
-│   ├── product.html                     # 商品详情
-│   ├── cart.html                        # 购物车
-│   ├── checkout.html                    # 结算页
-│   ├── upload.html                      # 发布商品
-│   ├── messages.html                    # 聊天（inline style）
-│   ├── favorites.html                   # 收藏页
-│   ├── my-orders.html                   # 买家订单
-│   ├── seller-orders.html               # 卖家订单
-│   ├── order-detail.html                # 订单详情
-│   ├── search.html                      # 搜索结果
-│   ├── user.html                        # 个人中心
-│   ├── login.html                       # 登录/注册（Tab 切换）
-│   ├── base.html                        # 基础模板（大部分页面未引用）
-│   ├── admin/dashboard.html             # 管理后台仪表盘
-│   ├── admin/products.html              # 管理后台商品管理
-│   └── admin/users.html                 # 管理后台用户管理
-├── static/css/style.css                 # 主样式表（~4285行）
-├── static/js/main.js                    # 主 JS（App 命名空间，~1103行）
-└── static/images/sunset-beach.jpg       # 静态图片
+├── db/migration/                  # Flyway V1–V11
+├── static/                        # Vite 构建产物
+└── application.properties
 ```
+
+### 3.3 关键机制
+
+- **认证**：HttpSession + JSESSIONID；`users.session_id` 单点踢下线；`SessionValidationFilter` 白名单公开 API
+- **401 分流**：公开页只清登录态；需登录页 / 被踢才跳 `/login`；错误码 `SESSION_KICKED`
+- **权限**：admin 接口 `checkAdmin` → `ForbiddenException`（HTTP 403）
+- **订单**：`pending_payment` 占库存 → `payOrder` 扣款（可核销优惠券）→ 发货/收货/完成（托管打款）/ 售后链
+- **商品分页**：`ProductRepository.searchActivePaged` JPQL + `Pageable` 真分页（筛选/排序下推数据库）
+- **审计**：`@Audited` 标注服务层敏感方法，AOP 写 `audit_logs`
+- **软删除**：商品/用户进回收站可恢复；彻底删除才物理删
+
+## 四、数据库
+
+实体约 20 个：users / products / orders / cart_items / comments / favorites / addresses /
+chat_rooms / chat_messages / notifications / reviews / reports / quick_replies /
+wallet_transactions / categories / coupons / user_coupons / audit_logs / offers /
+announcements / withdraw_requests。
+
+表结构以 Flyway `V1`–`V11` 为准；`chat_rooms` 对 `(user1username, user2username, product_id, room_type)` 有唯一约束。
+
+## 五、测试
+
+```bash
+.\.maven\apache-maven-3.9.6\bin\mvn.cmd test   # 后端 70 个（含 Coupon/Offer/Withdraw/分页）
+cd frontend && npm test                        # 前端工具函数 13 个
+cd frontend && npm run lint
+```
+
+---
+
+> **以下章节为历史存档**（描述已移除的 Thymeleaf SSR 版本），仅供对照旧实现，不代表现状。
 
 ## 四、数据库设计
 

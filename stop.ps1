@@ -10,7 +10,13 @@ try {
     Write-Host "已发送关闭指令，等待端口释放..." -ForegroundColor Green
     Start-Sleep -Seconds 5
 } catch {
-    Write-Host "API 关闭失败，尝试直接终止" -ForegroundColor Yellow
+    try {
+        Invoke-RestMethod -Uri "http://localhost:$port/api/internal/shutdown" -Method POST -TimeoutSec 3 | Out-Null
+        Write-Host "已发送关闭指令，等待端口释放..." -ForegroundColor Green
+        Start-Sleep -Seconds 5
+    } catch {
+        Write-Host "API 关闭失败，尝试直接终止" -ForegroundColor Yellow
+    }
 }
 
 # 2. 查找占用端口的进程

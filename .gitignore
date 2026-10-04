@@ -48,3 +48,6 @@ uploads/
 
 # Playwright CLI artifacts
 .playwright-cli/
+
+# 本地机密（数据库/邮箱口令），不入库
+/config/secrets.properties
