@@ -26,6 +26,7 @@ public class EmailCodeService {
 
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final String mailFrom;
+    private final boolean logMailCodes;
 
     /** key = username|email → CodeRecord */
     private final Map<String, CodeRecord> store = new ConcurrentHashMap<>();
@@ -44,9 +45,11 @@ public class EmailCodeService {
     }
 
     public EmailCodeService(ObjectProvider<JavaMailSender> mailSenderProvider,
-                            @Value("${spring.mail.username:}") String mailFrom) {
+                            @Value("${spring.mail.username:}") String mailFrom,
+                            @Value("${mall.security.log-mail-codes:false}") boolean logMailCodes) {
         this.mailSenderProvider = mailSenderProvider;
         this.mailFrom = mailFrom;
+        this.logMailCodes = logMailCodes;
     }
 
     /** 生成并发送验证码 */
@@ -76,12 +79,17 @@ public class EmailCodeService {
                 sender.send(message);
                 log.info("[Mail] 重置验证码已发送至 {}", mask(email));
             } catch (Exception e) {
-                // 发信失败不吞掉验证码：开发环境仍可在日志中看到
-                log.warn("[Mail] 发送失败（{}），验证码已生成。原因: {}", mask(email), e.getMessage());
-                log.info("[Mail][DEV] {} 重置验证码: {}", mask(email), code);
+                log.warn("[Mail] 发送失败（{}），验证码已生成但不落日志。原因: {}", mask(email), e.getMessage());
+                if (logMailCodes) {
+                    log.info("[Mail][DEV] {} 重置验证码: {}", mask(email), code);
+                }
             }
         } else {
-            log.info("[Mail][DEV] 未配置 SMTP，验证码（仅开发可见）→ {} : {}", mask(email), code);
+            if (logMailCodes) {
+                log.info("[Mail][DEV] 未配置 SMTP，验证码（仅开发可见）→ {} : {}", mask(email), code);
+            } else {
+                log.warn("[Mail] 未配置 SMTP 且未开启 log-mail-codes，验证码无法送达 {}", mask(email));
+            }
         }
     }
 

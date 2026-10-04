@@ -16,6 +16,10 @@ function isAuthPath(path) {
 async function request(url, options = {}) {
   const headers = { ...(options.headers || {}) }
   const method = (options.method || 'GET').toUpperCase()
+  // CSRF：写操作必须带自定义头（跨站表单无法伪造），服务端 ApiCsrfHeaderFilter 校验
+  if (method !== 'GET' && method !== 'HEAD') {
+    headers['X-Requested-With'] = headers['X-Requested-With'] || 'XMLHttpRequest'
+  }
   let body
 
   if (options.body !== undefined && options.body !== null) {

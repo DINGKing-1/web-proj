@@ -49,7 +49,7 @@ public class UserController {
         }
     }
 
-    /** 余额充值（模拟支付） */
+    /** 余额充值（模拟支付，受 mall.wallet.mock-recharge-* 配置约束） */
     @PostMapping("/recharge")
     public Map<String, Object> recharge(@RequestBody Map<String, Object> body, HttpSession session) {
         try {
@@ -59,7 +59,6 @@ public class UserController {
             }
             BigDecimal amount = new BigDecimal(String.valueOf(body.get("amount")));
             User user = userService.recharge(usernameAttr.toString(), amount);
-            walletService.addRecharge(usernameAttr.toString(), amount.toPlainString());
             return Map.of("success", true, "message", "充值成功", "balance", user.getBalance());
         } catch (RuntimeException e) {
             return Map.of("success", false, "message", e.getMessage());

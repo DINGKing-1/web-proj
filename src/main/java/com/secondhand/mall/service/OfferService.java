@@ -20,6 +20,16 @@ import java.util.List;
 @Service
 public class OfferService {
 
+    /**
+     * 商品不可售导致的自动拒绝：标记 rejected 后抛出，
+     * 由 {@code @Transactional(noRollbackFor=...)} 保证 rejected 落库且错误仍上抛。
+     */
+    public static class OfferAutoRejectedException extends RuntimeException {
+        public OfferAutoRejectedException(String message) {
+            super(message);
+        }
+    }
+
     private final OfferRepository offerRepository;
     private final ProductRepository productRepository;
     private final AddressRepository addressRepository;
@@ -83,8 +93,9 @@ public class OfferService {
 
     /**
      * 卖家接受出价：按出价金额生成待付款订单（占用库存），出价标记 accepted。
+     * 商品不可售时自动拒绝：rejected 提交后仍抛错给调用方。
      */
-    @Transactional
+    @Transactional(noRollbackFor = OfferAutoRejectedException.class)
     public Offer acceptOffer(Long offerId, String sellerUsername) {
         Offer offer = offerRepository.findByIdForUpdate(offerId)
                 .orElseThrow(() -> new RuntimeException("出价不存在"));
@@ -102,7 +113,7 @@ public class OfferService {
             offer.setStatus("rejected");
             offer.setRespondedAt(LocalDateTime.now());
             offerRepository.save(offer);
-            throw new RuntimeException("商品已下架或售罄，出价已自动拒绝");
+            throw new OfferAutoRejectedException("商品已下架或售罄，出价已自动拒绝");
         }
 
         // 用买家默认/最新地址生成待付款订单

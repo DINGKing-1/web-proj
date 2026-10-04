@@ -29,6 +29,12 @@ public class WalletService {
         add(username, "recharge", "余额充值", new BigDecimal(amount));
     }
 
+    /** 累计充值金额（模拟充值上限校验用） */
+    public BigDecimal sumRechargeAmount(String username) {
+        BigDecimal sum = walletTransactionRepository.sumAmountByUsernameAndType(username, "recharge");
+        return sum != null ? sum : BigDecimal.ZERO;
+    }
+
     /** 通用资金流水：buy/sell/refund/withdraw/recharge */
     @Transactional
     public void add(String username, String type, String title, BigDecimal amount) {

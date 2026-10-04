@@ -147,13 +147,21 @@ public class ExportController extends BaseApiController {
         return sb.append('\r').append('\n').toString();
     }
 
-    /** CSV 转义：含逗号/引号/换行的字段用双引号包起来 */
+    /**
+     * CSV 转义：含逗号/引号/换行的字段用双引号包起来；
+     * 以 = + - @ 等公式字符开头时前置单引号，防止 Excel 公式注入。
+     */
     private String escape(String v) {
         if (v == null) return "";
-        if (v.contains(",") || v.contains("\"") || v.contains("\n") || v.contains("\r")) {
-            return "\"" + v.replace("\"", "\"\"") + "\"";
+        String s = v;
+        if (!s.isEmpty() && (s.charAt(0) == '=' || s.charAt(0) == '+' || s.charAt(0) == '-'
+                || s.charAt(0) == '@' || s.charAt(0) == '\t' || s.charAt(0) == '\r')) {
+            s = "'" + s;
         }
-        return v;
+        if (s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r")) {
+            return "\"" + s.replace("\"", "\"\"") + "\"";
+        }
+        return s;
     }
 
     private String nowStamp() {

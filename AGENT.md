@@ -32,8 +32,8 @@ cd frontend && npm run dev   # http://localhost:5173
 
 # 停止（优雅关闭，释放 8080 端口）
 .\stop.ps1
-# 或 API 关闭（Windows 下 ShutdownHook 无法触发）
-curl -X POST http://localhost:8080/internal/shutdown
+# 或 API 关闭（Windows 下 ShutdownHook 无法触发；写操作需 X-Requested-With）
+curl -X POST -H "X-Requested-With: XMLHttpRequest" http://localhost:8080/internal/shutdown
 ```
 
 访问 http://localhost:8080
@@ -314,6 +314,16 @@ after_sale(待卖家处理) → return_shipping(待买家寄回) → return_sent
 - **口令不入库**：数据库/邮箱口令放 `config/secrets.properties`（已 gitignore），由
   `spring.config.import=optional:file:./config/secrets.properties` 引入；
   环境变量 `MYSQL_PASSWORD` / `MAIL_PASSWORD` 优先级更高，可覆盖
+- **写操作 CSRF**：`ApiCsrfHeaderFilter` 要求 `X-Requested-With: XMLHttpRequest`；
+  前端 `client.js` 自动注入，`stop.ps1`/`restart.ps1` 关服请求同样带该头
+- **模拟充值**：`mall.wallet.mock-recharge-enabled`（生产 false）+ 单笔/累计上限；
+  新用户初始余额 `mall.user.initial-balance`（生产 0）
+- **管理员口令**：仅首次创建时写入（`MALL_ADMIN_PASSWORD` 或配置项；空则随机生成并打印一次）；
+  **绝不覆盖已有密码**，也不把异常口令批量重置成弱口令
+- **订单快照**：名称/分类/图片一律取服务端商品，防伪造；运单号仅发货时写入
+- **CSV 导出**：公式字符（=`+`-`@）前置单引号，防 Excel 公式注入
+- **找回密码验证码**默认不落日志（`mall.security.log-mail-codes`）
+- **关服接口**：拒绝带 `X-Forwarded-For`/`X-Real-IP` 的请求，防反代绕过「仅本机」
 - 敏感词校验统一在 `ProductService.createProduct/updateProduct`（合并后校验，
   防止只改一个字段绕过），评论/评价/聊天仍由 Controller 校验
 

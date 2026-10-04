@@ -30,15 +30,21 @@ public class UserService {
     private final AdminService adminService;
     private final StorageService storageService;
     private final EmailCodeService emailCodeService;
+    private final com.secondhand.mall.config.MallProperties mallProperties;
+    private final WalletService walletService;
 
     public UserService(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder,
                        AdminService adminService, StorageService storageService,
-                       EmailCodeService emailCodeService) {
+                       EmailCodeService emailCodeService,
+                       com.secondhand.mall.config.MallProperties mallProperties,
+                       WalletService walletService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.adminService = adminService;
         this.storageService = storageService;
         this.emailCodeService = emailCodeService;
+        this.mallProperties = mallProperties;
+        this.walletService = walletService;
     }
 
     public User register(RegisterRequest request, String sessionId) {
@@ -54,7 +60,10 @@ public class UserService {
         user.setPhone(request.getPhone());
         user.setRole("user");
         user.setBanned(false);
-        user.setBalance(new BigDecimal("10000.00"));
+        // 初始余额可配置：演示给启动资金，生产应为 0
+        java.math.BigDecimal initial = mallProperties.getUser().getInitialBalance();
+        user.setBalance(initial != null && initial.compareTo(java.math.BigDecimal.ZERO) >= 0
+                ? initial : java.math.BigDecimal.ZERO);
         user.setAvatar("/user-avatar/default.jpg");
         user.setSessionId(sessionId);
 
@@ -191,19 +200,35 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    /** 余额充值（模拟支付） */
+    /** 余额充值（模拟支付）。生产必须关闭 mock 开关，改走真实支付回调。 */
     @org.springframework.transaction.annotation.Transactional
     public User recharge(String username, BigDecimal amount) {
+        var wallet = mallProperties.getWallet();
+        if (!wallet.isMockRechargeEnabled()) {
+            throw new RuntimeException("充值通道已关闭，请联系管理员");
+        }
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new RuntimeException("充值金额必须大于 0");
         }
-        if (amount.compareTo(new BigDecimal("50000")) > 0) {
-            throw new RuntimeException("单次充值不能超过 ¥50,000");
+        BigDecimal maxSingle = wallet.getMockRechargeMaxSingle();
+        if (maxSingle != null && amount.compareTo(maxSingle) > 0) {
+            throw new RuntimeException("单次充值不能超过 ¥" + maxSingle.toPlainString());
         }
         User user = userRepository.findByUsernameForUpdate(username)
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
+        // 累计充值上限：防止脚本反复调用刷余额
+        BigDecimal maxCumulative = wallet.getMockRechargeMaxCumulative();
+        if (maxCumulative != null) {
+            BigDecimal recharged = walletService.sumRechargeAmount(username);
+            if (recharged.add(amount).compareTo(maxCumulative) > 0) {
+                throw new RuntimeException("累计模拟充值已达上限 ¥" + maxCumulative.toPlainString());
+            }
+        }
         user.setBalance(user.getBalance().add(amount));
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        // 余额与流水同事务落账，避免只加余额无流水
+        walletService.addRecharge(username, amount.toPlainString());
+        return saved;
     }
 
     /** 发送找回密码验证码到注册邮箱 */

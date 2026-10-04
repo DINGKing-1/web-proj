@@ -43,6 +43,26 @@ class UserServiceTest {
     }
 
     @Test
+    void testRecharge_RespectsCumulativeCap() {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("richuser");
+        request.setPassword("password123");
+        userService.register(request, "sid");
+
+        // 单笔 5 万上限
+        assertThrows(RuntimeException.class,
+                () -> userService.recharge("richuser", new java.math.BigDecimal("50001")));
+
+        // 累计上限 20 万：分次充到接近上限后应拒绝
+        for (int i = 0; i < 4; i++) {
+            userService.recharge("richuser", new java.math.BigDecimal("50000"));
+        }
+        assertThrows(RuntimeException.class,
+                () -> userService.recharge("richuser", new java.math.BigDecimal("1")),
+                "累计模拟充值超过上限应被拒绝");
+    }
+
+    @Test
     void testUploadAvatar_Success() throws IOException {
         // 创建用户
         RegisterRequest request = new RegisterRequest();

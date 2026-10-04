@@ -65,6 +65,15 @@ public class ShutdownController {
     }
 
     private static boolean isLocal(HttpServletRequest request) {
+        // 反向代理/隧道转发后 remoteAddr 仍是 127.0.0.1，必须拒绝带转发头的请求
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return false;
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return false;
+        }
         String remote = request.getRemoteAddr();
         return remote != null
                 && (remote.equals("127.0.0.1") || remote.equals("0:0:0:0:0:0:0:1")

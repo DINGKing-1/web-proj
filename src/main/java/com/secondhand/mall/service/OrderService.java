@@ -214,11 +214,12 @@ public class OrderService {
         order.setUsername(buyerUsername);
         order.setProductId(productId);
         order.setSellerUsername(product.getSellerUsername());
-        order.setProductName(!isBlank(productName) ? productName : product.getName());
+        // 订单快照一律以服务端商品为准，忽略客户端传入的名称/图片/分类（防钓鱼伪造）
+        order.setProductName(product.getName());
         order.setProductPrice(dealPrice);
         order.setQuantity(buyQty);
-        order.setCategory(!isBlank(category) ? category : product.getCategory());
-        order.setImageUrl(firstImageOf(!isBlank(imageUrl) ? imageUrl : product.getImageUrl()));
+        order.setCategory(product.getCategory());
+        order.setImageUrl(firstImageOf(product.getImageUrl()));
         order.setReceiverName(receiverName.trim());
         order.setReceiverPhone(receiverPhone.trim());
         order.setReceiverAddress(receiverAddress.trim());
@@ -748,9 +749,9 @@ public class OrderService {
             throw new RuntimeException("该状态不可直接设置: " + status);
         }
 
-        // 已发货后允许卖家修改运单号（shipped→shipped）
         order.setStatus(status);
-        if (trackingNumber != null && !trackingNumber.isEmpty()) {
+        // 运单号仅允许发货（卖家）写入，避免买家确认收货时覆盖物流证据
+        if ("shipped".equals(status) && trackingNumber != null && !trackingNumber.isEmpty()) {
             order.setTrackingNumber(trackingNumber);
         }
         return orderRepository.save(order);

@@ -21,6 +21,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+            // CSRF：默认 Token 与 SPA fetch 不兼容，改用 ApiCsrfHeaderFilter（X-Requested-With）
+            // + Session Cookie SameSite=lax 共同防护
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .authorizeHttpRequests(auth -> auth
@@ -34,7 +36,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/**").permitAll()
                 // 管理后台页面
                 .requestMatchers("/admin", "/admin/**").permitAll()
-                // 其他全部放行（权限由 Controller 中 session 校验）
+                // 鉴权由 SessionValidationFilter（未登录 401）+ 各 Controller 的
+                // getLoginUsername / checkAdmin 完成；新增写接口务必自行校验
                 .anyRequest().permitAll()
             )
             .formLogin(form -> form.disable())

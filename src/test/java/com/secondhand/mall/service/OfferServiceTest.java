@@ -164,4 +164,23 @@ class OfferServiceTest {
 
         assertThrows(RuntimeException.class, () -> offerService.acceptOffer(offer.getId(), "seller1"));
     }
+
+    @Test
+    void testAcceptOffer_ProductSoldOut_AutoRejectPersists() {
+        createUser("seller1", 0);
+        createUser("buyer1", 10000);
+        Product product = createProduct("seller1", 100);
+        createAddress("buyer1");
+        Offer offer = createOffer(product, "buyer1", "seller1", 80);
+        // 售罄
+        product.setQuantity(0);
+        product.setStatus("sold");
+        productRepository.save(product);
+
+        assertThrows(RuntimeException.class, () -> offerService.acceptOffer(offer.getId(), "seller1"));
+
+        Offer reloaded = offerRepository.findById(offer.getId()).orElseThrow();
+        assertEquals("rejected", reloaded.getStatus(), "自动拒绝必须在独立事务落库，不被外层 rollback 冲掉");
+        assertNotNull(reloaded.getRespondedAt());
+    }
 }

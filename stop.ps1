@@ -3,15 +3,16 @@
 
 $port = 8080
 
-# 1. 尝试通过 API 优雅关闭（触发 ShutdownHook）
+# 1. 尝试通过 API 优雅关闭（触发 ShutdownHook；需 X-Requested-With 防 CSRF）
+$headers = @{ 'X-Requested-With' = 'XMLHttpRequest' }
 Write-Host "尝试优雅关闭..." -ForegroundColor Cyan
 try {
-    Invoke-RestMethod -Uri "http://localhost:$port/internal/shutdown" -Method POST -TimeoutSec 3 | Out-Null
+    Invoke-RestMethod -Uri "http://localhost:$port/internal/shutdown" -Method POST -Headers $headers -TimeoutSec 3 | Out-Null
     Write-Host "已发送关闭指令，等待端口释放..." -ForegroundColor Green
     Start-Sleep -Seconds 5
 } catch {
     try {
-        Invoke-RestMethod -Uri "http://localhost:$port/api/internal/shutdown" -Method POST -TimeoutSec 3 | Out-Null
+        Invoke-RestMethod -Uri "http://localhost:$port/api/internal/shutdown" -Method POST -Headers $headers -TimeoutSec 3 | Out-Null
         Write-Host "已发送关闭指令，等待端口释放..." -ForegroundColor Green
         Start-Sleep -Seconds 5
     } catch {

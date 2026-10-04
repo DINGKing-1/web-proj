@@ -16,11 +16,12 @@ if ($LASTEXITCODE -ne 0) {
 Pop-Location
 
 Write-Host "[2/4] 停止旧服务..." -ForegroundColor Cyan
+$shutdownHeaders = @{ 'X-Requested-With' = 'XMLHttpRequest' }
 try {
-  Invoke-RestMethod -Uri "http://localhost:$port/internal/shutdown" -Method POST -TimeoutSec 2 | Out-Null
+  Invoke-RestMethod -Uri "http://localhost:$port/internal/shutdown" -Method POST -Headers $shutdownHeaders -TimeoutSec 2 | Out-Null
   Start-Sleep -Seconds 2
 } catch {
-  try { Invoke-RestMethod -Uri "http://localhost:$port/api/internal/shutdown" -Method POST -TimeoutSec 2 | Out-Null } catch { }
+  try { Invoke-RestMethod -Uri "http://localhost:$port/api/internal/shutdown" -Method POST -Headers $shutdownHeaders -TimeoutSec 2 | Out-Null } catch { }
   Start-Sleep -Seconds 2
 }
 Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |

@@ -10,100 +10,109 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
+import java.util.Base64;
 
 /**
  * 应用启动时初始化必要数据：
- * 1. 创建默认管理员账号 admin / admin123（BCrypt 加密）
- * 2. 修复数据库中非 BCrypt 编码的密码（可选）
+ * 1. 确保管理员账号存在（口令仅首次创建时写入，绝不覆盖已有密码）
+ * 2. 可选修复非 BCrypt 历史口令（默认关闭，避免批量重置成弱口令）
  */
 @Component
 @Order(1)
 public class DataInitializer implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final MallProperties mallProperties;
 
-    public DataInitializer(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder) {
+    public DataInitializer(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder,
+                           MallProperties mallProperties) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.mallProperties = mallProperties;
     }
 
     @Override
     public void run(String... args) {
         initAdminUser();
-        fixNonBcryptPasswords();
+        if (mallProperties.getSecurity().isLegacyPasswordRepair()) {
+            repairLegacyPasswords();
+        }
     }
 
     /**
-     * 确保管理员账号存在、role=admin、密码可用。
-     * 手写 SQL 哈希与文档密码不一致时（如误用 "password" 的示例哈希）会被纠正为 admin123。
+     * 确保管理员账号存在、role=admin。
+     * 安全约定：
+     * - 已有 admin 账号时只纠正 role，绝不动密码（避免启动就把口令打回弱口令）
+     * - 首次创建时用配置口令；未配置则生成随机口令并打印一次
      */
     private void initAdminUser() {
         userRepository.findByUsername("admin").ifPresentOrElse(
             existing -> {
-                boolean changed = false;
                 if (!"admin".equals(existing.getRole())) {
                     existing.setRole("admin");
-                    changed = true;
-                }
-                String pwd = existing.getPassword();
-                if (!isBCrypt(pwd)) {
-                    existing.setPassword(passwordEncoder.encode("admin123"));
-                    changed = true;
-                    log.info("✓ 管理员密码已更新为 BCrypt 编码");
-                } else if (passwordEncoder.matches("password", pwd)
-                        && !passwordEncoder.matches("admin123", pwd)) {
-                    // 历史 init.sql 误用示例哈希（实际密码是 password），纠正为文档约定的 admin123
-                    existing.setPassword(passwordEncoder.encode("admin123"));
-                    changed = true;
-                    log.warn("⚠ 管理员密码与文档不一致，已重置为 admin123");
-                }
-                if (changed) {
                     userRepository.save(existing);
+                    log.info("✓ 管理员角色已纠正为 admin");
                 }
-                log.info("✓ 管理员账号已就绪");
+                if (!isBCrypt(existing.getPassword())) {
+                    log.warn("⚠ 管理员密码不是 BCrypt 格式，请尽快登录并修改密码（不会自动重置）");
+                }
+                log.info("✓ 管理员账号已就绪（密码保持不变）");
             },
             () -> {
-                // 创建默认管理员
+                String raw = mallProperties.getSecurity().getAdminInitPassword();
+                boolean generated = raw == null || raw.isBlank();
+                if (generated) {
+                    raw = generateRandomPassword();
+                }
                 User admin = new User();
                 admin.setUsername("admin");
-                admin.setPassword(passwordEncoder.encode("admin123"));
+                admin.setPassword(passwordEncoder.encode(raw));
                 admin.setNickname("管理员");
                 admin.setRole("admin");
                 admin.setBalance(new BigDecimal("999999.00"));
                 admin.setEmail("admin@secondhand-mall.com");
                 userRepository.save(admin);
-                log.info("✓ 默认管理员已创建: admin / admin123");
+                if (generated) {
+                    log.warn("✓ 已创建管理员 admin，随机口令为: {} （请立即登录修改，此口令不会再次打印）", raw);
+                } else {
+                    log.info("✓ 默认管理员已创建（口令来自配置项 mall.security.admin-init-password / MALL_ADMIN_PASSWORD）");
+                }
             }
         );
     }
 
     /**
-     * 修复数据库中非 BCrypt 编码的密码（如手动 SQL 插入的明文密码）
-     * 注意：无法恢复原始明文密码，将其重置为 "123456"
+     * 仅在显式开启时处理非 BCrypt 口令：只告警，不改成固定弱口令。
+     * 需要重置时应由管理员走找回密码/后台重置流程。
      */
-    private void fixNonBcryptPasswords() {
-        int fixed = 0;
+    private void repairLegacyPasswords() {
+        int bad = 0;
         for (User user : userRepository.findAll()) {
             String pwd = user.getPassword();
             if (pwd != null && !isBCrypt(pwd)) {
-                user.setPassword(passwordEncoder.encode("123456"));
-                userRepository.save(user);
-                fixed++;
-                log.warn("⚠ 用户 [{}] 密码格式异常，已重置为 123456，请通知用户修改密码", user.getUsername());
+                bad++;
+                log.warn("⚠ 用户 [{}] 密码格式异常（非 BCrypt），请通知其通过找回密码重置", user.getUsername());
             }
         }
-        if (fixed > 0) {
-            log.info("✓ 共修复 {} 个密码格式异常的用户", fixed);
+        if (bad > 0) {
+            log.warn("✓ 共发现 {} 个密码格式异常的用户（未自动重置）", bad);
         }
     }
 
-    /**
-     * 判断密码是否已是 BCrypt 格式（$2a$ 开头）
-     */
+    private static String generateRandomPassword() {
+        byte[] bytes = new byte[18];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
     private boolean isBCrypt(String encodedPassword) {
-        return encodedPassword != null && encodedPassword.startsWith("$2a$");
+        return encodedPassword != null
+                && (encodedPassword.startsWith("$2a$") || encodedPassword.startsWith("$2b$")
+                    || encodedPassword.startsWith("$2y$"));
     }
 }
