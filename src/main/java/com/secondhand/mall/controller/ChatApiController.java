@@ -64,8 +64,26 @@ public class ChatApiController extends BaseApiController {
     public Map<String, Object> createRoom(@RequestBody Map<String, Object> request, HttpSession session) {
         try {
             String username = getLoginUsername(session);
-            String seller = (String) request.get("sellerUsername");
-            Long productId = Long.parseLong(request.get("productId").toString());
+            Object productIdRaw = request.get("productId");
+            Long productId = null;
+            if (productIdRaw != null && !String.valueOf(productIdRaw).isBlank()) {
+                productId = Long.parseLong(String.valueOf(productIdRaw));
+            }
+
+            String seller;
+            if (productId != null) {
+                // 卖家以商品归属为准，不信任请求体（防对任意用户建会话骚扰）
+                Product product = productService.getProductById(productId)
+                        .orElseThrow(() -> new RuntimeException("商品不存在"));
+                seller = product.getSellerUsername();
+            } else {
+                // 店铺页「联系卖家」：无商品上下文，直接按卖家建会话
+                String sellerUsername = (String) request.get("sellerUsername");
+                if (sellerUsername == null || sellerUsername.isBlank()) {
+                    return fail("缺少商品或卖家信息").toMap();
+                }
+                seller = sellerUsername.trim();
+            }
 
             if (username.equals(seller)) {
                 return fail("不能和自己聊天").toMap();

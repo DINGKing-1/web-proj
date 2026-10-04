@@ -26,7 +26,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // 静态资源 & 公开页面
                 .requestMatchers("/css/**", "/js/**", "/product-images/**", "/user-avatar/**").permitAll()
-                .requestMatchers("/", "/login", "/register", "/search", "/category/**", "/product/**").permitAll()
+                .requestMatchers("/", "/login", "/register", "/search", "/category/**", "/product/**", "/shop/**", "/notifications", "/order/**").permitAll()
                 // 公开 API
                 .requestMatchers("/api/login", "/api/register").permitAll()
                 .requestMatchers("/api/products", "/api/products/**").permitAll()
@@ -39,13 +39,8 @@ public class SecurityConfig {
             )
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
-            .logout(logout -> logout
-                .logoutUrl("/api/logout")
-                .logoutSuccessHandler((request, response, authentication) -> {
-                    response.setContentType("application/json;charset=UTF-8");
-                    response.getWriter().write("{\"success\":true,\"message\":\"已退出登录\"}");
-                })
-            )
+            // 退出统一走 ApiController#logout（清 sessionId + invalidate），避免 LogoutFilter 抢占导致双路径
+            .logout(logout -> logout.disable())
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint((request, response, authException) -> {
                     response.setContentType("application/json;charset=UTF-8");

@@ -1,5 +1,6 @@
 package com.secondhand.mall.config;
 
+import com.secondhand.mall.exception.ForbiddenException;
 import com.secondhand.mall.exception.NotFoundException;
 import com.secondhand.mall.exception.UnauthorizedException;
 import org.slf4j.Logger;
@@ -45,6 +46,18 @@ public class GlobalExceptionHandler {
         log.warn("未授权: {}", e.getMessage());
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", false);
+        response.put("code", "UNAUTHORIZED");
+        response.put("message", e.getMessage());
+        return response;
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, Object> handleForbidden(ForbiddenException e) {
+        log.warn("禁止访问: {}", e.getMessage());
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", false);
+        response.put("code", "FORBIDDEN");
         response.put("message", e.getMessage());
         return response;
     }

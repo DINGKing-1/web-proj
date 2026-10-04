@@ -37,20 +37,33 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     /**
-     * 确保管理员账号存在且密码正确
+     * 确保管理员账号存在、role=admin、密码可用。
+     * 手写 SQL 哈希与文档密码不一致时（如误用 "password" 的示例哈希）会被纠正为 admin123。
      */
     private void initAdminUser() {
         userRepository.findByUsername("admin").ifPresentOrElse(
             existing -> {
-                // 管理员已存在，但确保密码是 BCrypt 编码
-                if (!isBCrypt(existing.getPassword())) {
-                    existing.setPassword(passwordEncoder.encode("admin123"));
+                boolean changed = false;
+                if (!"admin".equals(existing.getRole())) {
                     existing.setRole("admin");
-                    userRepository.save(existing);
-                    log.info("✓ 管理员密码已更新为 BCrypt 编码");
-                } else {
-                    log.info("✓ 管理员账号已就绪");
+                    changed = true;
                 }
+                String pwd = existing.getPassword();
+                if (!isBCrypt(pwd)) {
+                    existing.setPassword(passwordEncoder.encode("admin123"));
+                    changed = true;
+                    log.info("✓ 管理员密码已更新为 BCrypt 编码");
+                } else if (passwordEncoder.matches("password", pwd)
+                        && !passwordEncoder.matches("admin123", pwd)) {
+                    // 历史 init.sql 误用示例哈希（实际密码是 password），纠正为文档约定的 admin123
+                    existing.setPassword(passwordEncoder.encode("admin123"));
+                    changed = true;
+                    log.warn("⚠ 管理员密码与文档不一致，已重置为 admin123");
+                }
+                if (changed) {
+                    userRepository.save(existing);
+                }
+                log.info("✓ 管理员账号已就绪");
             },
             () -> {
                 // 创建默认管理员

@@ -1,6 +1,7 @@
 package com.secondhand.mall.controller;
 
 import com.secondhand.mall.service.AdminService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
@@ -11,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * 开发专用：优雅关闭应用，释放端口
+ * 运维关闭：仅本机 + 管理员可调用（stop.ps1 / restart.ps1 使用）
  */
 @RestController
 public class ShutdownController {
@@ -25,14 +26,34 @@ public class ShutdownController {
         this.adminService = adminService;
     }
 
+    @PostMapping({"/internal/shutdown", "/api/internal/shutdown"})
+    public Map<String, Object> internalShutdown(HttpSession session, HttpServletRequest request) {
+        if (!isLocal(request)) {
+            return Map.of("success", false, "message", "仅限本机调用");
+        }
+        String username = (String) session.getAttribute("username");
+        if (username == null || !adminService.isAdmin(username)) {
+            return Map.of("success", false, "message", "无权执行此操作");
+        }
+        exitAsync();
+        return Map.of("success", true, "message", "应用即将关闭");
+    }
+
     @PostMapping("/api/graceful-shutdown")
-    public Map<String, Object> shutdown(HttpSession session) {
+    public Map<String, Object> shutdown(HttpSession session, HttpServletRequest request) {
+        if (!isLocal(request)) {
+            return Map.of("success", false, "message", "仅限本机调用");
+        }
         // 仅管理员可关闭
         String username = (String) session.getAttribute("username");
         if (username == null || !adminService.isAdmin(username)) {
             throw new RuntimeException("无权限执行此操作");
         }
+        exitAsync();
+        return Map.of("success", true, "message", "服务器正在优雅关闭...");
+    }
 
+    private void exitAsync() {
         new Thread(() -> {
             try {
                 Thread.sleep(500);
@@ -41,7 +62,12 @@ public class ShutdownController {
             SpringApplication.exit(applicationContext, () -> 0);
             System.exit(0);
         }).start();
+    }
 
-        return Map.of("success", true, "message", "服务器正在优雅关闭...");
+    private static boolean isLocal(HttpServletRequest request) {
+        String remote = request.getRemoteAddr();
+        return remote != null
+                && (remote.equals("127.0.0.1") || remote.equals("0:0:0:0:0:0:0:1")
+                    || remote.equals("::1"));
     }
 }

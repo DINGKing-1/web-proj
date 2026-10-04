@@ -4,6 +4,7 @@ import com.secondhand.mall.dto.LoginRequest;
 import com.secondhand.mall.dto.RegisterRequest;
 import com.secondhand.mall.entity.*;
 import com.secondhand.mall.service.*;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -23,11 +24,19 @@ public class ApiController extends BaseApiController {
     private final OrderService orderService;
     private final AddressService addressService;
     private final FileUploadService fileUploadService;
+    private final ReviewService reviewService;
+    private final NotificationService notificationService;
+    private final SensitiveWordService sensitiveWordService;
+    private final WalletService walletService;
+    private final LogisticsService logisticsService;
 
     public ApiController(ProductService productService, CommentService commentService,
                          UserService userService, CartService cartService,
                          OrderService orderService, AddressService addressService,
-                         FileUploadService fileUploadService) {
+                         FileUploadService fileUploadService, ReviewService reviewService,
+                         NotificationService notificationService,
+                         SensitiveWordService sensitiveWordService, WalletService walletService,
+                         LogisticsService logisticsService) {
         this.productService = productService;
         this.commentService = commentService;
         this.userService = userService;
@@ -35,16 +44,25 @@ public class ApiController extends BaseApiController {
         this.orderService = orderService;
         this.addressService = addressService;
         this.fileUploadService = fileUploadService;
+        this.reviewService = reviewService;
+        this.notificationService = notificationService;
+        this.sensitiveWordService = sensitiveWordService;
+        this.walletService = walletService;
+        this.logisticsService = logisticsService;
     }
 
     // ========== 认证 ==========
     @PostMapping("/login")
-    public Map<String, Object> login(@Valid @RequestBody LoginRequest request, HttpSession session) {
+    public Map<String, Object> login(@Valid @RequestBody LoginRequest request,
+                                     HttpServletRequest httpRequest, HttpSession session) {
         try {
             User user = userService.login(request, session.getId());
+            // 防会话固定：登录成功后更换会话 ID
+            String newSessionId = httpRequest.changeSessionId();
             session.setAttribute("username", user.getUsername());
             session.setAttribute("nickname", user.getNickname());
             session.setAttribute("role", user.getRole());
+            userService.setSessionId(user.getUsername(), newSessionId);
 
             return ok("登录成功")
                     .put("username", user.getUsername())
@@ -59,12 +77,16 @@ public class ApiController extends BaseApiController {
     }
 
     @PostMapping("/register")
-    public Map<String, Object> register(@Valid @RequestBody RegisterRequest request, HttpSession session) {
+    public Map<String, Object> register(@Valid @RequestBody RegisterRequest request,
+                                        HttpServletRequest httpRequest, HttpSession session) {
         try {
             User user = userService.register(request, session.getId());
+            // 防会话固定：注册成功后更换会话 ID
+            String newSessionId = httpRequest.changeSessionId();
             session.setAttribute("username", user.getUsername());
             session.setAttribute("nickname", user.getNickname());
             session.setAttribute("role", user.getRole());
+            userService.setSessionId(user.getUsername(), newSessionId);
 
             return ok("注册成功")
                     .put("username", user.getUsername())
@@ -103,6 +125,7 @@ public class ApiController extends BaseApiController {
                     .put("role", user.getRole())
                     .put("avatar", user.getAvatar())
                     .put("balance", user.getBalance())
+                    .put("pendingAmount", orderService.getSellerPendingAmount(username))
                     .put("buyerOrderCount", buyerCount)
                     .put("sellerOrderCount", sellerCount)
                     .toMap();
@@ -114,8 +137,9 @@ public class ApiController extends BaseApiController {
     // ========== 图片上传（支持多张） ==========
     @SuppressWarnings("unchecked")
     @PostMapping("/upload-image")
-    public Map<String, Object> uploadImage(@RequestBody Map<String, Object> request) {
+    public Map<String, Object> uploadImage(@RequestBody Map<String, Object> request, HttpSession session) {
         try {
+            getLoginUsername(session); // 需登录，防匿名刷磁盘
             Object imageObj = request.get("image");
             List<String> imageList;
             if (imageObj instanceof List) {
@@ -176,7 +200,10 @@ public class ApiController extends BaseApiController {
             }
 
             Product saved = productService.createProduct(product);
-            return ok("商品发布成功").put("productId", saved.getId()).toMap();
+            return ok("商品发布成功")
+                    .put("productId", saved.getId())
+                    .put("status", saved.getStatus())
+                    .toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }
@@ -193,70 +220,21 @@ public class ApiController extends BaseApiController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size) {
 
-        // 获取筛选后的商品
-        List<Product> allProducts;
-        boolean hasSeller = seller != null && !seller.isEmpty();
-        boolean hasFilters = (category != null && !category.isEmpty()) || minPrice != null || maxPrice != null || (condition != null && !condition.isEmpty()) || hasSeller;
-        boolean hasSort = sortBy != null && !sortBy.isEmpty();
-
-        if (hasSeller && !hasFilters) {
-            allProducts = productService.getSellerActiveProducts(seller);
-        } else if (hasSeller) {
-            allProducts = productService.getSellerActiveProducts(seller);
-            // 卖家筛选后再做价格/成色/排序
-            if (minPrice != null) {
-                allProducts = allProducts.stream().filter(p -> p.getSecondHandPrice() != null && p.getSecondHandPrice().compareTo(minPrice) >= 0).toList();
-            }
-            if (maxPrice != null) {
-                allProducts = allProducts.stream().filter(p -> p.getSecondHandPrice() != null && p.getSecondHandPrice().compareTo(maxPrice) <= 0).toList();
-            }
-            if (condition != null && !condition.isEmpty()) {
-                String cond = condition;
-                allProducts = allProducts.stream().filter(p -> cond.equals(p.getItemCondition())).toList();
-            }
-            if (category != null && !category.isEmpty()) {
-                String cat = category;
-                allProducts = allProducts.stream().filter(p -> cat.equals(p.getCategory())).toList();
-            }
-        } else if (!hasFilters && !hasSort) {
-            allProducts = productService.getActiveProducts();
-        } else {
-            allProducts = productService.getFilteredProducts(category, minPrice, maxPrice, condition, sortBy);
-        }
-
-        if (hasSeller && hasSort) {
-            final String sort = sortBy;
-            allProducts = new java.util.ArrayList<>(allProducts);
-            if ("price-asc".equals(sort)) {
-                allProducts.sort(java.util.Comparator.comparing(Product::getSecondHandPrice));
-            } else if ("price-desc".equals(sort)) {
-                allProducts.sort(java.util.Comparator.comparing(Product::getSecondHandPrice).reversed());
-            } else if ("sales".equals(sort) || "sales-desc".equals(sort)) {
-                // 销量排序由前端列表场景使用；卖家店内按上架时间即可
-                allProducts.sort(java.util.Comparator.comparing(Product::getCreatedAt).reversed());
-            } else {
-                allProducts.sort(java.util.Comparator.comparing(Product::getCreatedAt).reversed());
-            }
-        }
-
-        // 手动分页
-        int totalItems = allProducts.size();
-        int totalPages = (int) Math.ceil((double) totalItems / size);
-        int fromIndex = page * size;
-        int toIndex = Math.min(fromIndex + size, totalItems);
-
-        List<Product> pageProducts = (fromIndex < totalItems) ? allProducts.subList(fromIndex, toIndex) : List.of();
+        // 真分页：筛选/排序下推数据库，只取当前页
+        var result = productService.searchProductsPaged(
+                null, category, seller, minPrice, maxPrice, condition, sortBy, page, size);
 
         return ok("获取成功")
-                .put("products", pageProducts)
-                .put("total", totalItems)
-                .put("totalPages", totalPages)
-                .put("currentPage", page)
+                .put("products", result.getContent())
+                .put("total", result.getTotalElements())
+                .put("totalPages", result.getTotalPages())
+                .put("currentPage", result.getNumber())
                 .toMap();
     }
 
     @GetMapping("/products/{id}")
     public Map<String, Object> getProduct(@PathVariable Long id) {
+        productService.incrementViewCount(id);
         return productService.getProductById(id)
                 .map(product -> ok("获取成功").put("product", product).toMap())
                 .orElseGet(() -> fail("商品不存在").toMap());
@@ -277,20 +255,14 @@ public class ApiController extends BaseApiController {
             return fail("搜索关键词不能为空").toMap();
         }
 
-        List<Product> allProducts = productService.searchProducts(q.trim(), category, minPrice, maxPrice, condition, sortBy);
-
-        int totalItems = allProducts.size();
-        int totalPages = (int) Math.ceil((double) totalItems / size);
-        int fromIndex = page * size;
-        int toIndex = Math.min(fromIndex + size, totalItems);
-
-        List<Product> pageProducts = (fromIndex < totalItems) ? allProducts.subList(fromIndex, toIndex) : List.of();
+        var result = productService.searchProductsPaged(
+                q.trim(), category, null, minPrice, maxPrice, condition, sortBy, page, size);
 
         return ok("搜索成功")
-                .put("products", pageProducts)
-                .put("total", totalItems)
-                .put("totalPages", totalPages)
-                .put("currentPage", page)
+                .put("products", result.getContent())
+                .put("total", result.getTotalElements())
+                .put("totalPages", result.getTotalPages())
+                .put("currentPage", result.getNumber())
                 .toMap();
     }
 
@@ -317,11 +289,18 @@ public class ApiController extends BaseApiController {
             if (request.containsKey("originalPrice")) updates.setOriginalPrice(new BigDecimal(request.get("originalPrice").toString()));
             if (request.containsKey("secondHandPrice")) updates.setSecondHandPrice(new BigDecimal(request.get("secondHandPrice").toString()));
             if (request.containsKey("condition")) updates.setItemCondition((String) request.get("condition"));
-            if (request.containsKey("status")) updates.setStatus((String) request.get("status"));
+            if (request.containsKey("status")) {
+                String status = (String) request.get("status");
+                // 状态白名单：禁止写入 sold/deleted 等任意值
+                if (!Set.of("active", "inactive").contains(status)) {
+                    return fail("非法的商品状态").toMap();
+                }
+                updates.setStatus(status);
+            }
             if (request.containsKey("quantity")) updates.setQuantity(Integer.parseInt(request.get("quantity").toString()));
 
-            productService.updateProduct(id, updates, username);
-            return ok("更新成功").toMap();
+            Product saved = productService.updateProduct(id, updates, username);
+            return ok("更新成功").put("status", saved.getStatus()).toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }
@@ -352,6 +331,7 @@ public class ApiController extends BaseApiController {
         try {
             String username = getLoginUsername(session);
             String content = request.get("content");
+            sensitiveWordService.check(content);
             commentService.addComment(id, username, content);
             return ok("评论成功").toMap();
         } catch (RuntimeException e) {
@@ -378,7 +358,11 @@ public class ApiController extends BaseApiController {
         try {
             String username = getLoginUsername(session);
             Long productId = Long.parseLong(request.get("productId").toString());
-            cartService.addToCart(username, productId);
+            int quantity = 1;
+            if (request.get("quantity") != null) {
+                quantity = Integer.parseInt(request.get("quantity").toString());
+            }
+            cartService.addToCart(username, productId, quantity);
             return ok("已加入购物车").toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
@@ -390,6 +374,20 @@ public class ApiController extends BaseApiController {
         String username = getLoginUsername(session);
         List<?> items = cartService.getCart(username);
         return ok("获取成功").put("items", items).put("total", items.size()).toMap();
+    }
+
+    @PutMapping("/cart/{id}/quantity")
+    public Map<String, Object> updateCartQuantity(@PathVariable Long id,
+                                                  @RequestBody Map<String, Object> request,
+                                                  HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            int quantity = Integer.parseInt(String.valueOf(request.get("quantity")));
+            cartService.updateQuantity(id, username, quantity);
+            return ok("数量已更新").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
     }
 
     @DeleteMapping("/cart/{id}")
@@ -433,6 +431,7 @@ public class ApiController extends BaseApiController {
                     .put("email", user.getEmail())
                     .put("phone", user.getPhone())
                     .put("balance", user.getBalance())
+                    .put("pendingAmount", orderService.getSellerPendingAmount(username))
                     .put("avatar", user.getAvatar())
                     .put("role", user.getRole())
                     .put("createdAt", user.getCreatedAt())
@@ -487,7 +486,7 @@ public class ApiController extends BaseApiController {
 
             Order order = orderService.createOrder(
                 username, productId,
-                new BigDecimal(request.get("productPrice").toString()),
+                request.get("productPrice") != null ? new BigDecimal(request.get("productPrice").toString()) : null,
                 (String) request.get("productName"),
                 (String) request.get("category"),
                 (String) request.get("imageUrl"),
@@ -497,6 +496,11 @@ public class ApiController extends BaseApiController {
                 (String) request.get("paymentMethod"),
                 quantity
             );
+
+            notificationService.push(order.getSellerUsername(), "order", "新订单",
+                "买家购买了「" + order.getProductName() + "」，请及时发货", "order", String.valueOf(order.getId()));
+            notificationService.push(username, "order", "下单成功",
+                "「" + order.getProductName() + "」下单成功，等待卖家发货", "order", String.valueOf(order.getId()));
 
             return ok("订单创建成功").put("orderId", order.getId()).toMap();
         } catch (RuntimeException e) {
@@ -523,7 +527,7 @@ public class ApiController extends BaseApiController {
                 }
                 items.add(new OrderService.OrderItemRequest(
                     Long.parseLong(m.get("productId").toString()),
-                    new BigDecimal(m.get("productPrice").toString()),
+                    m.get("productPrice") != null ? new BigDecimal(m.get("productPrice").toString()) : null,
                     (String) m.get("productName"),
                     (String) m.get("category"),
                     (String) m.get("imageUrl"),
@@ -547,6 +551,13 @@ public class ApiController extends BaseApiController {
                 (String) request.get("paymentMethod"),
                 cartItemIds
             );
+
+            for (Order order : orders) {
+                notificationService.push(order.getSellerUsername(), "order", "新订单",
+                    "买家购买了「" + order.getProductName() + "」，请及时发货", "order", String.valueOf(order.getId()));
+            }
+            notificationService.push(username, "order", "下单成功",
+                "成功下单 " + orders.size() + " 件商品，等待卖家发货", "order", "");
 
             List<Long> orderIds = orders.stream().map(Order::getId).toList();
             return ok("订单创建成功").put("orderIds", orderIds).put("count", orders.size()).toMap();
@@ -583,7 +594,16 @@ public class ApiController extends BaseApiController {
             String username = getLoginUsername(session);
             String status = request.get("status");
             String trackingNumber = request.get("trackingNumber");
-            orderService.updateOrderStatus(id, status, trackingNumber, username);
+            Order order = orderService.updateOrderStatus(id, status, trackingNumber, username);
+            if ("shipped".equals(status)) {
+                notificationService.push(order.getUsername(), "order", "卖家已发货",
+                    "「" + order.getProductName() + "」已发货" +
+                        (trackingNumber != null && !trackingNumber.isEmpty() ? "，运单号 " + trackingNumber : ""),
+                    "order", String.valueOf(order.getId()));
+            } else if ("received".equals(status)) {
+                notificationService.push(order.getSellerUsername(), "order", "买家已收货",
+                    "「" + order.getProductName() + "」买家已确认收货", "order", String.valueOf(order.getId()));
+            }
             return ok("状态更新成功").toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
@@ -601,12 +621,144 @@ public class ApiController extends BaseApiController {
         }
     }
 
+    /** 余额支付待付款订单 */
+    @PostMapping("/orders/{id}/pay")
+    public Map<String, Object> payOrder(@PathVariable Long id,
+                                        @RequestBody(required = false) Map<String, Object> body,
+                                        HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            Long userCouponId = null;
+            if (body != null && body.get("userCouponId") != null) {
+                String v = String.valueOf(body.get("userCouponId"));
+                if (!v.isBlank() && !"null".equals(v)) userCouponId = Long.parseLong(v);
+            }
+            Order order = orderService.payOrder(id, username, userCouponId);
+            notificationService.push(order.getSellerUsername(), "order", "新订单",
+                "「" + order.getProductName() + "」有新订单，请及时发货", "order", String.valueOf(order.getId()));
+            return ok("支付成功，等待卖家发货").put("order", order).toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 物流轨迹（演示版） */
+    @GetMapping("/orders/{id}/tracking")
+    public Map<String, Object> orderTracking(@PathVariable Long id, HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            return orderService.getOrderById(id, username)
+                    .map(order -> logisticsService.track(order))
+                    .orElseGet(() -> fail("订单不存在").toMap());
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
     @PostMapping("/orders/{id}/cancel")
     public Map<String, Object> cancelOrder(@PathVariable Long id, HttpSession session) {
         try {
             String username = getLoginUsername(session);
-            orderService.cancelOrder(id, username);
-            return ok("订单已取消，余额已退还").toMap();
+            Order order = orderService.cancelOrder(id, username);
+            notificationService.push(order.getSellerUsername(), "order", "订单已取消",
+                "「" + order.getProductName() + "」的订单已被买家取消", "order", String.valueOf(order.getId()));
+            return ok("订单已取消").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 买家申请售后（发货后/收货后） */
+    @PostMapping("/orders/{id}/after-sale")
+    public Map<String, Object> applyAfterSale(@PathVariable Long id,
+                                              @RequestBody(required = false) Map<String, String> body,
+                                              HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            String reason = body != null ? body.get("reason") : null;
+            Order order = orderService.applyAfterSale(id, username, reason);
+            String saleReason = order.getAfterSaleReason() != null ? order.getAfterSaleReason() : "";
+            notificationService.push(order.getSellerUsername(), "order", "售后申请",
+                "「" + order.getProductName() + "」买家申请退款：" + saleReason,
+                "order", String.valueOf(order.getId()));
+            return ok("售后申请已提交，等待卖家处理").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 卖家同意售后：进入待买家寄回（不立即退款） */
+    @PostMapping("/orders/{id}/after-sale/approve")
+    public Map<String, Object> approveAfterSale(@PathVariable Long id, HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            Order order = orderService.approveAfterSale(id, username);
+            notificationService.push(order.getUsername(), "order", "卖家已同意退货",
+                "「" + order.getProductName() + "」卖家同意退货，请尽快寄回并填写退货运单号",
+                "order", String.valueOf(order.getId()));
+            return ok("已同意退货，请等待买家寄回").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 买家填写退货运单号并寄回 */
+    @PostMapping("/orders/{id}/return-tracking")
+    public Map<String, Object> submitReturnTracking(@PathVariable Long id,
+                                                    @RequestBody Map<String, Object> body,
+                                                    HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            Object no = body.get("trackingNumber");
+            Order order = orderService.submitReturnTracking(id, username, no == null ? null : String.valueOf(no));
+            notificationService.push(order.getSellerUsername(), "order", "买家已寄回退货",
+                "「" + order.getProductName() + "」退货运单号：" + order.getReturnTrackingNumber()
+                    + "，确认收到退货后将立即退款", "order", String.valueOf(order.getId()));
+            return ok("退货已寄出，等待卖家确认收货").put("order", order).toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 卖家确认收到退货 → 退款 */
+    @PostMapping("/orders/{id}/return-received")
+    public Map<String, Object> confirmReturnReceived(@PathVariable Long id, HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            Order order = orderService.confirmReturnReceived(id, username);
+            notificationService.push(order.getUsername(), "order", "退款已完成",
+                "「" + order.getProductName() + "」卖家已确认收到退货，货款已退回你的余额",
+                "order", String.valueOf(order.getId()));
+            return ok("已确认收货，货款已退回买家").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 买家撤销售后申请（尚未寄回时） */
+    @PostMapping("/orders/{id}/after-sale/cancel")
+    public Map<String, Object> cancelAfterSale(@PathVariable Long id, HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            Order order = orderService.cancelAfterSale(id, username);
+            notificationService.push(order.getSellerUsername(), "order", "售后申请已撤回",
+                "「" + order.getProductName() + "」买家撤回了售后申请", "order", String.valueOf(order.getId()));
+            return ok("售后申请已撤回").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 卖家拒绝售后 */
+    @PostMapping("/orders/{id}/after-sale/reject")
+    public Map<String, Object> rejectAfterSale(@PathVariable Long id, HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            Order order = orderService.rejectAfterSale(id, username);
+            notificationService.push(order.getUsername(), "order", "售后被拒绝",
+                "「" + order.getProductName() + "」卖家拒绝了售后申请，如有疑问请联系客服",
+                "order", String.valueOf(order.getId()));
+            return ok("已拒绝售后申请").toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }
@@ -616,8 +768,106 @@ public class ApiController extends BaseApiController {
     public Map<String, Object> completeOrder(@PathVariable Long id, HttpSession session) {
         try {
             String username = getLoginUsername(session);
-            orderService.completeOrder(id, username);
+            Order order = orderService.completeOrder(id, username);
+            notificationService.push(order.getSellerUsername(), "order", "订单已完成",
+                "「" + order.getProductName() + "」订单已完成", "order", String.valueOf(order.getId()));
             return ok("订单已完成").toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 订单评价（确认收货后：三项星级 + 图/视频） */
+    @PostMapping("/orders/{id}/review")
+    public Map<String, Object> reviewOrder(@PathVariable Long id,
+                                           @RequestBody Map<String, Object> request,
+                                           HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            int ratingGoods = parseStars(request.get("ratingGoods"));
+            int ratingService = parseStars(request.get("ratingService"));
+            int ratingDelivery = parseStars(request.get("ratingDelivery"));
+            // 兼容旧字段：只传 rating 时三项同分
+            if (request.get("ratingGoods") == null && request.get("rating") != null) {
+                int legacy = parseStars(request.get("rating"));
+                ratingGoods = legacy;
+                ratingService = legacy;
+                ratingDelivery = legacy;
+            }
+            String content = request.get("content") == null ? "" : String.valueOf(request.get("content"));
+            if (content.length() > 500) {
+                return fail("评价内容不能超过 500 字").toMap();
+            }
+            sensitiveWordService.check(content);
+            String images = joinList(request.get("images"));
+            String videos = joinList(request.get("videos"));
+
+            Review review = reviewService.reviewOrder(
+                    id, username, ratingGoods, ratingService, ratingDelivery, content, images, videos);
+            int avg = review.getRating() == null ? 5 : review.getRating();
+            notificationService.push(review.getSellerUsername(), "review", "收到新评价",
+                "买家给出 " + avg + " 星评价" + (content.isEmpty() ? "" : "：" + content),
+                "order", String.valueOf(id));
+            return ok("评价成功").put("review", review).toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    private int parseStars(Object raw) {
+        int v = Integer.parseInt(String.valueOf(raw == null ? 5 : raw));
+        if (v < 1 || v > 5) {
+            throw new RuntimeException("评分需在 1-5 星之间");
+        }
+        return v;
+    }
+
+    private String joinList(Object raw) {
+        if (raw == null) return "";
+        if (raw instanceof List<?> list) {
+            return list.stream()
+                    .filter(x -> x != null && !String.valueOf(x).isBlank())
+                    .map(String::valueOf)
+                    .reduce((a, b) -> a + "," + b)
+                    .orElse("");
+        }
+        return String.valueOf(raw);
+    }
+
+    /** 通用媒体上传（聊天图片/视频），与评价媒体同一套校验与落盘 */
+    @PostMapping("/upload-media")
+    public Map<String, Object> uploadMedia(@RequestBody Map<String, Object> request, HttpSession session) {
+        return uploadReviewMedia(request, session);
+    }
+
+    /** 评价媒体上传（图片 / 视频） */
+    @SuppressWarnings("unchecked")
+    @PostMapping("/upload-review-media")
+    public Map<String, Object> uploadReviewMedia(@RequestBody Map<String, Object> request, HttpSession session) {
+        try {
+            getLoginUsername(session);
+            Object mediaObj = request.get("media");
+            List<String> mediaList;
+            if (mediaObj instanceof List) {
+                mediaList = (List<String>) mediaObj;
+            } else if (mediaObj instanceof String) {
+                mediaList = List.of((String) mediaObj);
+            } else {
+                return fail("媒体数据为空").toMap();
+            }
+            List<String> urls = fileUploadService.uploadReviewMedia(mediaList);
+            return ok("上传成功").put("urls", urls).toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
+    /** 卖家经营看板：商品数、成交、待结算/已到账收入、近 14 天趋势 */
+    @GetMapping("/seller/stats")
+    public Map<String, Object> sellerStats(HttpSession session) {
+        try {
+            String username = getLoginUsername(session);
+            return ok("获取成功").put("stats", orderService.sellerStats(username)).toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }
@@ -693,14 +943,5 @@ public class ApiController extends BaseApiController {
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }
-    }
-
-    @PostMapping("/internal/shutdown")
-    public Map<String, Object> internalShutdown() {
-        new Thread(() -> {
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-            System.exit(0);
-        }).start();
-        return ok("应用即将关闭").toMap();
     }
 }

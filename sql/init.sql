@@ -60,11 +60,13 @@ CREATE TABLE IF NOT EXISTS cart_items (
 -- 订单表
 CREATE TABLE IF NOT EXISTS orders (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_number VARCHAR(32) NOT NULL UNIQUE,
     username VARCHAR(100) NOT NULL,
     product_id BIGINT NOT NULL,
     seller_username VARCHAR(100),
     product_name VARCHAR(255) NOT NULL,
-    product_price DOUBLE NOT NULL,
+    product_price DECIMAL(12,2) NOT NULL,
+    quantity INT NOT NULL DEFAULT 1,
     category VARCHAR(100) NOT NULL,
     image_url TEXT NOT NULL,
     receiver_name VARCHAR(100) NOT NULL,
@@ -73,6 +75,9 @@ CREATE TABLE IF NOT EXISTS orders (
     payment_method VARCHAR(50) NOT NULL,
     status VARCHAR(20) DEFAULT 'unshipped',
     tracking_number VARCHAR(100),
+    rating INT,
+    review_content VARCHAR(500),
+    reviewed_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -121,6 +126,63 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 默认管理员账户 (密码: admin123, BCrypt加密)
-INSERT IGNORE INTO users (username, password, email, phone, nickname, role)
-VALUES ('admin', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'admin@youpinhui.com', '13800000000', '系统管理员', 'admin');
+-- 站内通知表
+CREATE TABLE IF NOT EXISTS notifications (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content VARCHAR(500),
+    ref_type VARCHAR(50),
+    ref_id VARCHAR(50),
+    read_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 订单评价表（order_id 唯一，防重复评价）
+CREATE TABLE IF NOT EXISTS reviews (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT NOT NULL UNIQUE,
+    product_id BIGINT NOT NULL,
+    buyer_username VARCHAR(100) NOT NULL,
+    seller_username VARCHAR(100),
+    rating INT NOT NULL,
+    content VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 商品举报表
+CREATE TABLE IF NOT EXISTS reports (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    product_id BIGINT NOT NULL,
+    reporter_username VARCHAR(100) NOT NULL,
+    product_name VARCHAR(255),
+    reason VARCHAR(50) NOT NULL,
+    detail VARCHAR(500),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 客服快捷话术表
+CREATE TABLE IF NOT EXISTS quick_replies (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    category VARCHAR(50),
+    title VARCHAR(200) NOT NULL,
+    content TEXT NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 钱包流水表（充值/支付/退款记录，可对账）
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    type VARCHAR(20) NOT NULL,
+    title VARCHAR(200),
+    amount DECIMAL(12,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'success',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 默认管理员由 DataInitializer 在应用启动时创建：admin / admin123（BCrypt 存储）。
+-- 此处不再直接 INSERT，避免手写哈希与文档密码不一致（历史哈希实为 "password"）。
