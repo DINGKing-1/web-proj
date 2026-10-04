@@ -136,15 +136,27 @@ class AdminServiceTest {
         chatMessage.setContent("Test message");
         chatMessageRepository.save(chatMessage);
 
-        // 删除用户
+        // 删除用户 = 软删除进回收站，业务数据保留以便追回
         adminService.deleteUser(user.getId());
 
-        // 验证所有关联数据已删除
+        User deleted = userRepository.findById(user.getId()).orElseThrow();
+        assertTrue(deleted.getDeleted());
+        // 软删除保留业务数据
+        assertFalse(orderRepository.findByUsernameOrderByCreatedAtDesc("testuser").isEmpty());
+        assertFalse(cartItemRepository.findByUsernameOrderByCreatedAtDesc("testuser").isEmpty());
+        assertFalse(favoriteRepository.findByUsernameOrderByCreatedAtDesc("testuser").isEmpty());
+        assertFalse(addressRepository.findByUsernameOrderByIsDefaultDescCreatedAtDesc("testuser").isEmpty());
+        assertFalse(commentRepository.findByProductIdOrderByCreatedAtDesc(1L).isEmpty());
+        assertFalse(chatRoomRepository.findByUsername("testuser").isEmpty());
+
+        // 彻底删除才级联清空业务数据
+        adminService.purgeUser(user.getId());
+        assertTrue(userRepository.findById(user.getId()).isEmpty());
         assertTrue(orderRepository.findByUsernameOrderByCreatedAtDesc("testuser").isEmpty());
         assertTrue(cartItemRepository.findByUsernameOrderByCreatedAtDesc("testuser").isEmpty());
         assertTrue(favoriteRepository.findByUsernameOrderByCreatedAtDesc("testuser").isEmpty());
         assertTrue(addressRepository.findByUsernameOrderByIsDefaultDescCreatedAtDesc("testuser").isEmpty());
         assertTrue(commentRepository.findByProductIdOrderByCreatedAtDesc(1L).isEmpty());
-        assertTrue(chatRoomRepository.findActiveByUsername("testuser").isEmpty());
+        assertTrue(chatRoomRepository.findByUsername("testuser").isEmpty());
     }
 }
