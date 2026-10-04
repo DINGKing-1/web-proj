@@ -30,6 +30,10 @@ public class Order {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal productPrice;
 
+    /** 用券抵扣金额（支付时写入）；实付 = 单价×数量 - 该值 */
+    @Column(precision = 12, scale = 2)
+    private BigDecimal discountAmount;
+
     @Column
     private Integer quantity;
 
@@ -54,17 +58,57 @@ public class Order {
     @Column(nullable = false, length = 20)
     private String status = "unshipped";
 
+    @Column(length = 20)
+    private String prevStatus;
+
+    @Column(length = 200)
+    private String afterSaleReason;
+
+    /** 卖家是否已收款（资金托管：完成后再打款） */
+    @Column(nullable = false)
+    private Boolean sellerPaid = false;
+
     @Column(length = 100)
     private String trackingNumber;
 
+    /** 买家寄回的退货运单号（after_sale 流程） */
+    @Column(length = 100)
+    private String returnTrackingNumber;
+
+    /** 售后申请时间：卖家超时未处理的兜底判定 */
+    @Column
+    private LocalDateTime afterSaleAt;
+
+    /** 买家寄回时间 */
+    @Column
+    private LocalDateTime returnSentAt;
+
+    /** 买家评分 1-5，未评价为 null */
+    @Column
+    private Integer rating;
+
+    @Column(length = 500)
+    private String reviewContent;
+
+    @Column
+    private LocalDateTime reviewedAt;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
+
+    /** 发货时间：自动完成超时判定用（拖很久才发货的单不应立刻被打款） */
+    @Column
+    private LocalDateTime shippedAt;
+
+    @Column
+    private LocalDateTime receivedAt;
 
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (status == null) status = "unshipped";
         if (quantity == null) quantity = 1;
+        if (sellerPaid == null) sellerPaid = false;
     }
 
     public Order() {}
@@ -90,6 +134,9 @@ public class Order {
     public BigDecimal getProductPrice() { return productPrice; }
     public void setProductPrice(BigDecimal productPrice) { this.productPrice = productPrice; }
 
+    public BigDecimal getDiscountAmount() { return discountAmount; }
+    public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
+
     public Integer getQuantity() { return quantity; }
     public void setQuantity(Integer quantity) { this.quantity = quantity; }
 
@@ -114,9 +161,42 @@ public class Order {
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 
+    public String getPrevStatus() { return prevStatus; }
+    public void setPrevStatus(String prevStatus) { this.prevStatus = prevStatus; }
+
+    public String getAfterSaleReason() { return afterSaleReason; }
+    public void setAfterSaleReason(String afterSaleReason) { this.afterSaleReason = afterSaleReason; }
+
+    public Boolean getSellerPaid() { return sellerPaid; }
+    public void setSellerPaid(Boolean sellerPaid) { this.sellerPaid = sellerPaid; }
+
     public String getTrackingNumber() { return trackingNumber; }
     public void setTrackingNumber(String trackingNumber) { this.trackingNumber = trackingNumber; }
 
+    public String getReturnTrackingNumber() { return returnTrackingNumber; }
+    public void setReturnTrackingNumber(String returnTrackingNumber) { this.returnTrackingNumber = returnTrackingNumber; }
+
+    public LocalDateTime getAfterSaleAt() { return afterSaleAt; }
+    public void setAfterSaleAt(LocalDateTime afterSaleAt) { this.afterSaleAt = afterSaleAt; }
+
+    public LocalDateTime getReturnSentAt() { return returnSentAt; }
+    public void setReturnSentAt(LocalDateTime returnSentAt) { this.returnSentAt = returnSentAt; }
+
+    public Integer getRating() { return rating; }
+    public void setRating(Integer rating) { this.rating = rating; }
+
+    public String getReviewContent() { return reviewContent; }
+    public void setReviewContent(String reviewContent) { this.reviewContent = reviewContent; }
+
+    public LocalDateTime getReviewedAt() { return reviewedAt; }
+    public void setReviewedAt(LocalDateTime reviewedAt) { this.reviewedAt = reviewedAt; }
+
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public LocalDateTime getShippedAt() { return shippedAt; }
+    public void setShippedAt(LocalDateTime shippedAt) { this.shippedAt = shippedAt; }
+
+    public LocalDateTime getReceivedAt() { return receivedAt; }
+    public void setReceivedAt(LocalDateTime receivedAt) { this.receivedAt = receivedAt; }
 }

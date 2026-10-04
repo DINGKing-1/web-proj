@@ -32,6 +32,18 @@ public class User {
     @Column(nullable = false, length = 20)
     private String role = "user";
 
+    /** 账号封禁：禁止登录与交易 */
+    @Column(nullable = false)
+    private Boolean banned = false;
+
+    /** 软删除标记：注销/管理员删除后进回收站，可恢复 */
+    @Column(nullable = false)
+    private Boolean deleted = Boolean.FALSE;
+
+    private LocalDateTime deletedAt;
+
+    private String deletedBy;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal balance = new BigDecimal("10000.00");
 
@@ -51,6 +63,8 @@ public class User {
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (role == null) role = "user";
+        if (banned == null) banned = false;
+        if (deleted == null) deleted = false;
         if (balance == null) balance = new BigDecimal("10000.00");
         if (avatar == null) avatar = "/user-avatar/default.jpg";
         if (lastActiveTime == null) lastActiveTime = LocalDateTime.now();
@@ -86,6 +100,18 @@ public class User {
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+
+    public Boolean getBanned() { return banned; }
+    public void setBanned(Boolean banned) { this.banned = banned; }
+
+    public Boolean getDeleted() { return deleted; }
+    public void setDeleted(Boolean deleted) { this.deleted = deleted; }
+
+    public LocalDateTime getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }
+
+    public String getDeletedBy() { return deletedBy; }
+    public void setDeletedBy(String deletedBy) { this.deletedBy = deletedBy; }
 
     public BigDecimal getBalance() { return balance; }
     public void setBalance(BigDecimal balance) { this.balance = balance; }

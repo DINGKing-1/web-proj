@@ -37,6 +37,8 @@ public class Product {
     @Column(nullable = false, length = 100)
     private String sellerName;
 
+    /** 卖家手机号：仅写入，不随商品接口序列化返回（防公开接口批量抓取） */
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
     @Column(length = 20)
     private String sellerPhone;
 
@@ -61,6 +63,14 @@ public class Product {
     @Column(nullable = false, length = 20)
     private String status;
 
+    /** 审核驳回理由（status=rejected 时有值），卖家在「我的商品」可见 */
+    @Column(length = 255)
+    private String reviewNote;
+
+    /** 浏览量 */
+    @Column(nullable = false)
+    private Integer viewCount = 0;
+
     @Column(nullable = false, columnDefinition = "DATETIME(6)")
     private LocalDateTime createdAt;
 
@@ -68,11 +78,16 @@ public class Product {
     @Transient
     private Long salesCount;
 
+    /** 买家评分均值，非持久化 */
+    @Transient
+    private Double avgRating;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (status == null) status = "active";
         if (quantity == null) quantity = 1;
+        if (viewCount == null) viewCount = 0;
     }
 
     public Product() {}
@@ -164,9 +179,18 @@ public class Product {
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 
+    public String getReviewNote() { return reviewNote; }
+    public void setReviewNote(String reviewNote) { this.reviewNote = reviewNote; }
+
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 
+    public Integer getViewCount() { return viewCount; }
+    public void setViewCount(Integer viewCount) { this.viewCount = viewCount; }
+
     public Long getSalesCount() { return salesCount; }
     public void setSalesCount(Long salesCount) { this.salesCount = salesCount; }
+
+    public Double getAvgRating() { return avgRating; }
+    public void setAvgRating(Double avgRating) { this.avgRating = avgRating; }
 }

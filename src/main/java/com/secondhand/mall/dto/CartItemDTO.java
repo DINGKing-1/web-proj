@@ -10,6 +10,8 @@ public class CartItemDTO {
     private String image;
     private String category;
     private boolean available;
+    private Integer quantity = 1;
+    private Integer stock;
 
     public CartItemDTO() {}
 
@@ -33,4 +35,10 @@ public class CartItemDTO {
 
     public boolean isAvailable() { return available; }
     public void setAvailable(boolean available) { this.available = available; }
+
+    public Integer getQuantity() { return quantity; }
+    public void setQuantity(Integer quantity) { this.quantity = quantity; }
+
+    public Integer getStock() { return stock; }
+    public void setStock(Integer stock) { this.stock = stock; }
 }

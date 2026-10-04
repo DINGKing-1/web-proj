@@ -17,12 +17,17 @@ public class CartItem {
     @Column(nullable = false)
     private Long productId;
 
+    /** 购买数量，默认 1 */
+    @Column(nullable = false)
+    private Integer quantity = 1;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
+        if (quantity == null) quantity = 1;
     }
 
     public CartItem() {}
@@ -40,6 +45,9 @@ public class CartItem {
 
     public Long getProductId() { return productId; }
     public void setProductId(Long productId) { this.productId = productId; }
+
+    public Integer getQuantity() { return quantity; }
+    public void setQuantity(Integer quantity) { this.quantity = quantity; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

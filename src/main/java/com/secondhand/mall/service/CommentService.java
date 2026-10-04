@@ -67,6 +67,11 @@ public class CommentService {
         productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("商品不存在"));
 
+        // 防重复刷评论：同一用户对同一商品的相同内容只允许一次
+        if (commentRepository.existsByProductIdAndUserNameAndContent(productId, userName, content.trim())) {
+            throw new RuntimeException("请勿重复发表相同评论");
+        }
+
         Comment comment = new Comment(productId, userName, content.trim());
         return commentRepository.save(comment);
     }
@@ -74,6 +79,11 @@ public class CommentService {
     public void deleteComment(Long productId, Long commentId, String currentUsername) {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new RuntimeException("评论不存在"));
+
+        // IDOR 防护：评论必须属于 URL 指定的商品
+        if (!comment.getProductId().equals(productId)) {
+            throw new RuntimeException("评论不存在");
+        }
 
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("商品不存在"));

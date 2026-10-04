@@ -17,8 +17,13 @@ public class ChatRoom {
     @Column(nullable = false, length = 100)
     private String user2Username;
 
+    /** 0 表示客服会话（不关联商品） */
     @Column(nullable = false)
     private Long productId;
+
+    /** seller=买卖会话，support=客服会话 */
+    @Column(nullable = false, length = 20)
+    private String roomType = "seller";
 
     @Column(length = 500)
     private String lastMessage;
@@ -45,6 +50,8 @@ public class ChatRoom {
         if (user1Unread == null) user1Unread = 0;
         if (user2Unread == null) user2Unread = 0;
         if (deleted == null) deleted = false;
+        if (roomType == null) roomType = "seller";
+        if (productId == null) productId = 0L;
     }
 
     public ChatRoom() {}
@@ -60,6 +67,9 @@ public class ChatRoom {
 
     public Long getProductId() { return productId; }
     public void setProductId(Long productId) { this.productId = productId; }
+
+    public String getRoomType() { return roomType; }
+    public void setRoomType(String roomType) { this.roomType = roomType; }
 
     public String getLastMessage() { return lastMessage; }
     public void setLastMessage(String lastMessage) { this.lastMessage = lastMessage; }

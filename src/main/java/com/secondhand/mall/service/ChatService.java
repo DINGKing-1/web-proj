@@ -16,28 +16,38 @@ import java.util.stream.Collectors;
 @Service
 public class ChatService {
 
-    private static final Set<String> VALID_MESSAGE_TYPES = Set.of("text", "image");
+    private static final Set<String> VALID_MESSAGE_TYPES = Set.of("text", "image", "video");
     private static final int MAX_MESSAGE_LENGTH = 5000;
 
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final SensitiveWordService sensitiveWordService;
 
     public ChatService(ChatRoomRepository chatRoomRepository, ChatMessageRepository chatMessageRepository,
-                       ProductRepository productRepository, UserRepository userRepository) {
+                       ProductRepository productRepository, UserRepository userRepository,
+                       SensitiveWordService sensitiveWordService) {
         this.chatRoomRepository = chatRoomRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
+        this.sensitiveWordService = sensitiveWordService;
     }
 
     public ChatRoom findRoom(String buyer, String seller, Long productId) {
-        return chatRoomRepository.findByUsersAndProduct(buyer, seller, productId).orElse(null);
+        Long pid = (productId != null && productId > 0) ? productId : 0L;
+        return chatRoomRepository.findByUsersProductAndType(buyer, seller, pid, "seller").orElse(null);
     }
 
+    /**
+     * 按「买卖双方 + 商品」定位会话：
+     * - 带商品上下文：productId 唯一标识会话，同一对用户可有多个商品会话
+     * - 无商品上下文（店铺页）：productId 记 0，与客服会话按 roomType 区分
+     */
     public ChatRoom getOrCreateRoom(String buyer, String seller, Long productId) {
-        Optional<ChatRoom> existing = chatRoomRepository.findByUsers(buyer, seller);
+        Long pid = (productId != null && productId > 0) ? productId : 0L;
+        Optional<ChatRoom> existing = chatRoomRepository.findByUsersProductAndType(buyer, seller, pid, "seller");
         if (existing.isPresent()) {
             return existing.get();
         }
@@ -45,9 +55,72 @@ public class ChatService {
         ChatRoom room = new ChatRoom();
         room.setUser1Username(buyer);
         room.setUser2Username(seller);
-        room.setProductId(productId);
+        room.setProductId(pid);
+        room.setRoomType("seller");
         room.setLastMessage("");
+        try {
+            return chatRoomRepository.save(room);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // 并发建房撞唯一键：回查已有房间
+            return chatRoomRepository.findByUsersProductAndType(buyer, seller, pid, "seller")
+                    .orElseThrow(() -> e);
+        }
+    }
+
+    /** 用户 → 平台客服（admin）会话 */
+    public ChatRoom getOrCreateSupportRoom(String username, String adminUsername) {
+        Optional<ChatRoom> existing = chatRoomRepository.findByUsersProductAndType(username, adminUsername, 0L, "support");
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        ChatRoom room = new ChatRoom();
+        room.setUser1Username(username);
+        room.setUser2Username(adminUsername);
+        room.setProductId(0L);
+        room.setRoomType("support");
+        room.setLastMessage("您好，很高兴为您服务");
+        room = chatRoomRepository.save(room);
+
+        // 欢迎语必须真正落库，否则用户会话里看不到客服发言
+        ChatMessage welcome = new ChatMessage();
+        welcome.setRoomId(room.getId());
+        welcome.setSenderUsername(adminUsername);
+        welcome.setContent("您好，我是优品汇平台客服，很高兴为您服务。请问有什么可以帮您？您也可以点击下方常见问题快速咨询。");
+        welcome.setMessageType("text");
+        welcome = chatMessageRepository.save(welcome);
+        room.setLastMessage(welcome.getContent());
+        room.setLastMessageTime(welcome.getCreatedAt());
         return chatRoomRepository.save(room);
+    }
+
+    /** 管理端：所有客服会话（user2=admin） */
+    public List<Map<String, Object>> getSupportRoomsForAdmin(String adminUsername) {
+        List<ChatRoom> rooms = chatRoomRepository.findByUsername(adminUsername);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ChatRoom room : rooms) {
+            if (room.getDeleted()) continue;
+            if (!"support".equals(room.getRoomType())) continue;
+            String other = room.getUser1Username().equals(adminUsername)
+                    ? room.getUser2Username() : room.getUser1Username();
+            // 客服会话约定：user1=用户，user2=客服
+            if (adminUsername.equals(other)) continue;
+            User u = userRepository.findByUsername(other).orElse(null);
+            int unread = room.getUser2Username().equals(adminUsername)
+                    ? room.getUser2Unread() : room.getUser1Unread();
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("roomId", room.getId());
+            item.put("username", other);
+            item.put("nickname", u != null && u.getNickname() != null ? u.getNickname() : other);
+            item.put("avatar", u != null ? u.getAvatar() : "/user-avatar/default.jpg");
+            item.put("lastMessage", room.getLastMessage());
+            item.put("lastMessageTime", room.getLastMessageTime());
+            item.put("unread", unread);
+            item.put("createdAt", room.getCreatedAt());
+            result.add(item);
+        }
+        result.sort((a, b) -> String.valueOf(b.get("lastMessageTime")).compareTo(String.valueOf(a.get("lastMessageTime"))));
+        return result;
     }
 
     public ChatMessage sendMessage(Long roomId, String sender, String content, String type, Long productId) {
@@ -57,6 +130,10 @@ public class ChatService {
         }
         if (content.length() > MAX_MESSAGE_LENGTH) {
             throw new RuntimeException("消息内容不能超过 " + MAX_MESSAGE_LENGTH + " 个字符");
+        }
+        // 敏感词检查（与商品/评论一致）；媒体消息 content 为 URL，跳过
+        if (!"image".equals(type) && !"video".equals(type)) {
+            sensitiveWordService.check(content);
         }
 
         // 校验消息类型
@@ -79,7 +156,11 @@ public class ChatService {
         }
         ChatMessage saved = chatMessageRepository.save(msg);
 
-        room.setLastMessage("image".equals(messageType) ? "[图片]" : content.trim());
+        room.setLastMessage(switch (messageType) {
+            case "image" -> "[图片]";
+            case "video" -> "[视频]";
+            default -> content.trim();
+        });
         room.setLastMessageTime(saved.getCreatedAt());
 
         if (room.getUser1Username().equals(sender)) {
