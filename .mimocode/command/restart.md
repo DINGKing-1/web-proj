@@ -12,7 +12,7 @@ Restart the Spring Boot application:
 2. If found, gracefully stop it (try API first, then force kill):
    ```powershell
    if ($proc) {
-       try { Invoke-RestMethod -Uri "http://localhost:8080/internal/shutdown" -Method POST -TimeoutSec 3 } catch {}
+       try { Invoke-RestMethod -Uri "http://localhost:8080/internal/shutdown" -Method POST -Headers @{ 'X-Requested-With'='XMLHttpRequest' } -TimeoutSec 3 } catch {}
        Start-Sleep -Seconds 3
        foreach ($pid in $proc) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
        Start-Sleep -Seconds 2
