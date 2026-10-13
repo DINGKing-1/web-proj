@@ -24,6 +24,10 @@ const autoCycles = ref(0)
 const orderReviews = ref([])
 const avgRating = ref(null)
 const relatedProducts = ref([])
+/** 商品留言 */
+const comments = ref([])
+const commentText = ref('')
+const commentActing = ref(false)
 /** 举报弹窗 */
 const showReport = ref(false)
 const reportReason = ref('商品违规')
@@ -132,6 +136,7 @@ async function load() {
     showToast(d.message || '商品加载失败', 'error')
   }
   await loadReviews()
+  await loadComments()
   loadRelated()
   if (seq === loadSeq) loading.value = false
 }
@@ -152,6 +157,56 @@ async function loadReviews() {
     avgRating.value = d.avgRating
   }
 }
+
+async function loadComments() {
+  const seq = loadSeq
+  const d = await productApi.comments(route.params.id)
+  if (seq !== loadSeq) return
+  if (d.success) comments.value = d.comments || []
+}
+
+async function submitComment() {
+  if (!requireLogin() || commentActing.value) return
+  const content = commentText.value.trim()
+  if (!content) {
+    showToast('请填写留言内容', 'warning')
+    return
+  }
+  if (content.length > 500) {
+    showToast('留言不能超过 500 字', 'warning')
+    return
+  }
+  commentActing.value = true
+  const d = await productApi.addComment(route.params.id, content)
+  commentActing.value = false
+  if (d.success) {
+    showToast('留言成功')
+    commentText.value = ''
+    await loadComments()
+  } else {
+    showToast(d.message || '留言失败', 'error')
+  }
+}
+
+async function removeComment(c) {
+  const ok = await confirmDialog({
+    title: '删除留言',
+    message: '确定删除这条留言吗？',
+    okText: '删除',
+    type: 'warning'
+  })
+  if (!ok) return
+  const d = await productApi.deleteComment(route.params.id, c.id)
+  if (d.success) {
+    showToast('已删除')
+    await loadComments()
+  } else {
+    showToast(d.message || '删除失败', 'error')
+  }
+}
+
+const canDeleteComment = (c) =>
+  store.user && (store.user.username === c.userName || store.user.role === 'admin')
 
 /** 评价互动：卖家回复 / 买家追评 */
 const replyingId = ref(null)
@@ -291,10 +346,6 @@ function buyNow() {
     return
   }
   const n = Math.min(Math.max(1, qty.value), maxQty.value || 1)
-  sessionStorage.setItem(
-    'checkout',
-    JSON.stringify({ productId: String(product.value.id), quantity: n })
-  )
   sessionStorage.setItem('checkoutProductId', String(product.value.id))
   sessionStorage.setItem('checkoutQuantity', String(n))
   router.push('/checkout')
@@ -705,6 +756,62 @@ onBeforeUnmount(stopAuto)
                         <button type="button" class="btn btn-primary btn-sm" @click="submitFollow(r)">提交追评</button>
                       </div>
                     </div>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <!-- 商品留言 -->
+            <section class="card card-pad block">
+              <div class="section-title">
+                <h2>商品留言</h2>
+                <span class="count-pill">{{ comments.length }}</span>
+              </div>
+              <div class="comment-editor">
+                <textarea
+                  v-model="commentText"
+                  class="comment-input"
+                  rows="3"
+                  maxlength="500"
+                  placeholder="对这件商品有疑问？给卖家留言吧（500 字内）"
+                ></textarea>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  :disabled="commentActing"
+                  @click="submitComment"
+                >
+                  {{ commentActing ? '提交中…' : '发表留言' }}
+                </button>
+              </div>
+              <EmptyState
+                v-if="!comments.length"
+                icon="fa-comment"
+                title="还没有留言"
+                desc="第一个留言，向卖家了解更多细节"
+              />
+              <ul v-else class="buyer-list">
+                <li v-for="c in comments" :key="'c' + c.id" class="buyer-item">
+                  <img
+                    :src="c.avatar || '/user-avatar/default.jpg'"
+                    class="c-avatar"
+                    alt=""
+                    @error="$event.target.src = '/user-avatar/default.jpg'"
+                  />
+                  <div class="b-body">
+                    <div class="b-top">
+                      <strong>{{ c.displayName || c.userName }}</strong>
+                      <span class="muted text-xs">{{ formatTime(c.createdAt) }}</span>
+                      <button
+                        v-if="canDeleteComment(c)"
+                        type="button"
+                        class="btn btn-ghost btn-sm c-del"
+                        @click="removeComment(c)"
+                      >
+                        删除
+                      </button>
+                    </div>
+                    <p class="b-content">{{ c.content }}</p>
                   </div>
                 </li>
               </ul>
@@ -1297,6 +1404,34 @@ onBeforeUnmount(stopAuto)
   color: var(--ink-soft);
   line-height: 1.7;
   white-space: pre-wrap;
+}
+.comment-editor {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.comment-input {
+  flex: 1;
+  resize: vertical;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface-2, transparent);
+}
+.c-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.c-del {
+  margin-left: auto;
+  font-size: 12px;
 }
 .seller-reply,
 .buyer-follow {

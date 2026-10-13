@@ -38,20 +38,9 @@ public class SessionValidationFilter implements Filter {
         HttpSession session = httpRequest.getSession(false);
 
         // 未登录用户访问需要认证的 API 端点时，直接返回 401
-        // 公开接口：登录注册、商品列表/详情/评论、店铺、搜索热词、忘记密码
-        if (session == null && uri.startsWith("/api/")
-                && !uri.equals("/api/login") && !uri.equals("/api/register")
-                && !uri.equals("/api/admin/login")
-                && !uri.equals("/api/session")
-                && !uri.startsWith("/api/products")
-                && !uri.startsWith("/api/sellers")
-                && !uri.startsWith("/api/search/")
-                && !uri.equals("/api/user/reset-password")
-                && !uri.equals("/api/user/reset-code")
-                && !uri.equals("/api/support/faq")
-                && !uri.startsWith("/api/reports")
-                && !uri.equals("/api/announcements")
-                && !uri.equals("/api/categories")) {
+        // 公开接口（仅 GET）：商品列表/详情/评论、店铺、搜索、举报列表等；
+        // 写方法（POST/PUT/DELETE）一律要求登录，防「按前缀放行」把写接口裸奔
+        if (session == null && uri.startsWith("/api/") && isAuthRequired(uri, httpRequest.getMethod())) {
             httpResponse.setContentType("application/json;charset=UTF-8");
             httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             httpResponse.getWriter().write("{\"success\":false,\"message\":\"请先登录\"}");
@@ -88,5 +77,28 @@ public class SessionValidationFilter implements Filter {
         }
 
         chain.doFilter(request, response);
+    }
+
+    /**
+     * 该请求是否需要登录：
+     * - 写方法（POST/PUT/DELETE/PATCH）一律需要登录（登录/注册/找回密码除外）
+     * - GET 白名单按精确路径/前缀放行
+     */
+    private static boolean isAuthRequired(String uri, String method) {
+        boolean write = !"GET".equals(method) && !"HEAD".equals(method) && !"OPTIONS".equals(method);
+        if (write) {
+            // 公开的写接口仅认证类
+            return !uri.equals("/api/login") && !uri.equals("/api/register")
+                    && !uri.equals("/api/admin/login")
+                    && !uri.equals("/api/user/reset-password") && !uri.equals("/api/user/reset-code");
+        }
+        return !uri.equals("/api/session")
+                && !uri.startsWith("/api/products")
+                && !uri.startsWith("/api/sellers")
+                && !uri.startsWith("/api/search/")
+                && !uri.equals("/api/support/faq")
+                && !uri.startsWith("/api/reports")
+                && !uri.equals("/api/announcements")
+                && !uri.equals("/api/categories");
     }
 }

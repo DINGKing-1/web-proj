@@ -79,6 +79,10 @@ public class Order {
     @Column
     private LocalDateTime afterSaleAt;
 
+    /** 同意退货时间：买家 7 天寄回窗口由此起算（非申请时间） */
+    @Column
+    private LocalDateTime returnApprovedAt;
+
     /** 买家寄回时间 */
     @Column
     private LocalDateTime returnSentAt;
@@ -178,6 +182,9 @@ public class Order {
 
     public LocalDateTime getAfterSaleAt() { return afterSaleAt; }
     public void setAfterSaleAt(LocalDateTime afterSaleAt) { this.afterSaleAt = afterSaleAt; }
+
+    public LocalDateTime getReturnApprovedAt() { return returnApprovedAt; }
+    public void setReturnApprovedAt(LocalDateTime returnApprovedAt) { this.returnApprovedAt = returnApprovedAt; }
 
     public LocalDateTime getReturnSentAt() { return returnSentAt; }
     public void setReturnSentAt(LocalDateTime returnSentAt) { this.returnSentAt = returnSentAt; }

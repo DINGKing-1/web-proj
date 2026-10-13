@@ -49,6 +49,28 @@ class ProductServiceTest {
         return productRepository.save(product);
     }
 
+    /**
+     * 回归：待审/驳回/已删商品不得被公开详情读取，
+     * 否则发布审核与回收站形同虚设，驳回理由 reviewNote 也会外泄。
+     */
+    @Test
+    void testGetProductById_HidesNonActiveFromPublic() {
+        for (String st : List.of("pending", "rejected", "deleted", "inactive")) {
+            Product p = createTestProduct("hidden-" + st, st);
+            assertTrue(productService.getProductById(p.getId(), null).isEmpty(),
+                    st + " 商品不应被路人读到");
+            assertTrue(productService.getProductById(p.getId(), "stranger").isEmpty(),
+                    st + " 商品不应被其他用户读到");
+            // 卖家本人可看自己的待审/驳回（我的商品）
+            assertTrue(productService.getProductById(p.getId(), "seller").isPresent(),
+                    st + " 商品卖家本人应可见");
+        }
+        Product active = createTestProduct("visible", "active");
+        assertTrue(productService.getProductById(active.getId(), null).isPresent(),
+                "在售商品应公开可见");
+        assertTrue(productService.getPublicProductById(active.getId()).isPresent());
+    }
+
     @Test
     void testSearchProducts_ShouldExcludeSoldProducts() {
         // 创建商品：一个活跃，一个已售

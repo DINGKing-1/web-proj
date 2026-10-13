@@ -51,6 +51,16 @@ public class UserService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new RuntimeException("用户名已存在");
         }
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            String em = request.getEmail().trim();
+            if (!em.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                throw new RuntimeException("邮箱格式不正确");
+            }
+            if (userRepository.existsByEmailIgnoreCase(em)) {
+                throw new RuntimeException("该邮箱已被其他账号绑定");
+            }
+            request.setEmail(em);
+        }
 
         User user = new User();
         user.setUsername(request.getUsername());
@@ -155,12 +165,25 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
     }
 
-    public User updateUser(String username, String nickname, String email, String phone,
-                           String currentPassword, String newPassword, String avatar) {
+    public User updateUser(String username, String nickname, String email, String phone, String avatar) {
         User user = findByUsername(username);
 
         if (nickname != null) user.setNickname(nickname);
-        if (email != null) user.setEmail(email);
+        if (email != null) {
+            String em = email.trim();
+            if (!em.isEmpty()) {
+                // 格式 + 唯一：防止绑成他人邮箱去收验证码/干扰找回密码
+                if (!em.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                    throw new RuntimeException("邮箱格式不正确");
+                }
+                var owner = userRepository.findByEmailIgnoreCase(em)
+                        .orElse(null);
+                if (owner != null && !owner.getUsername().equals(username)) {
+                    throw new RuntimeException("该邮箱已被其他账号绑定");
+                }
+            }
+            user.setEmail(em.isEmpty() ? null : em);
+        }
         if (phone != null) user.setPhone(phone);
         // 头像仅允许服务端生成的相对路径，防任意字符串/外链注入
         if (avatar != null && !avatar.isEmpty()) {
@@ -168,22 +191,6 @@ public class UserService {
                 throw new RuntimeException("非法的头像地址");
             }
             user.setAvatar(avatar);
-        }
-
-        // 修改密码需验证当前密码
-        if (newPassword != null && !newPassword.isEmpty()) {
-            if (currentPassword == null || currentPassword.isEmpty()) {
-                throw new RuntimeException("请输入当前密码");
-            }
-            if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
-                throw new RuntimeException("当前密码错误");
-            }
-            if (newPassword.length() < 6) {
-                throw new RuntimeException("新密码至少6位");
-            }
-            user.setPassword(passwordEncoder.encode(newPassword));
-            // 改密后使旧会话失效（防入侵者继续持有会话）
-            user.setSessionId(null);
         }
 
         return userRepository.save(user);
@@ -283,6 +290,46 @@ public class UserService {
         // 重置密码后吊销全部已有会话
         user.setSessionId(null);
         userRepository.save(user);
+    }
+
+    /** 发送修改密码验证码：必须已绑定邮箱，发往绑定邮箱 */
+    public void sendChangePasswordCode(String username) {
+        User user = findByUsername(username);
+        requireBoundEmail(user);
+        emailCodeService.sendCode(user.getUsername(), user.getEmail(), EmailCodeService.PURPOSE_CHANGE);
+    }
+
+    /**
+     * 登录后修改密码：需已绑定邮箱 + 当前密码 + 邮箱验证码。
+     * 改密后吊销其他会话；当前会话续期，避免把自己踢下线。
+     */
+    public void changePassword(String username, String currentPassword, String newPassword,
+                               String code, String currentSessionId) {
+        User user = findByUsername(username);
+        requireBoundEmail(user);
+
+        if (currentPassword == null || currentPassword.isEmpty()) {
+            throw new RuntimeException("请输入当前密码");
+        }
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new RuntimeException("当前密码错误");
+        }
+        if (newPassword == null || newPassword.length() < 6) {
+            throw new RuntimeException("新密码至少 6 位");
+        }
+
+        // 验证码校验（通过即作废）；与找回密码的码隔离，不能混用
+        emailCodeService.verifyCode(user.getUsername(), user.getEmail(), code, EmailCodeService.PURPOSE_CHANGE);
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setSessionId(currentSessionId);
+        userRepository.save(user);
+    }
+
+    private static void requireBoundEmail(User user) {
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
+            throw new RuntimeException("请先绑定邮箱后再修改密码");
+        }
     }
 
     /** 注销账号（需密码确认）：软删除进回收站，数据保留以便追回 */

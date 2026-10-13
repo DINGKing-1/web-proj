@@ -159,6 +159,10 @@ export const chatApi = {
 export const userApi = {
   info: () => api.get('/api/user'),
   update: (payload) => api.put('/api/user', payload),
+  /** 发送修改密码验证码到绑定邮箱（未绑定邮箱会报错） */
+  sendChangePasswordCode: () => api.post('/api/user/change-password-code', {}),
+  /** 登录后改密：currentPassword + password + code */
+  changePassword: (payload) => api.post('/api/user/change-password', payload),
   uploadAvatar: (formData) => api.upload('/api/user/avatar', formData),
   recharge: (amount) => api.post('/api/user/recharge', { amount }),
   wallet: () => api.get('/api/user/wallet'),
@@ -245,7 +249,7 @@ export const couponApi = {
 
 /** 数据导出（CSV，带会话 Cookie 直接触发浏览器下载） */
 export const exportApi = {
-  orders: (status = '') => `/api/admin/export/orders${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+  orders: () => '/api/admin/export/orders',
   users: () => '/api/admin/export/users',
   wallet: () => '/api/admin/export/wallet'
 }

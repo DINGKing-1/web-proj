@@ -41,6 +41,8 @@ public class WithdrawService {
         if (amount == null || amount.compareTo(MIN_AMOUNT) < 0) {
             throw new RuntimeException("提现金额不能低于 ¥" + MIN_AMOUNT.toPlainString());
         }
+        // 统一 2 位小数：避免 10.005 这类金额扣余额与落库/退回口径漂移
+        amount = amount.setScale(2, java.math.RoundingMode.HALF_UP);
         if (amount.compareTo(MAX_AMOUNT) > 0) {
             throw new RuntimeException("单次提现不能超过 ¥" + MAX_AMOUNT.toPlainString());
         }

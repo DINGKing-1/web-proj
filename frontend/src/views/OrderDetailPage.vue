@@ -176,8 +176,13 @@ function openAfterSale() {
 
 async function submitAfterSale() {
   if (acting.value) return
+  const reason = afterSaleReason.value.trim()
+  if (!reason) {
+    showToast('请填写申请原因', 'warning')
+    return
+  }
   acting.value = true
-  const d = await orderApi.applyAfterSale(order.value.id, afterSaleReason.value.trim())
+  const d = await orderApi.applyAfterSale(order.value.id, reason)
   acting.value = false
   if (d.success) {
     showToast('售后申请已提交，等待卖家处理')

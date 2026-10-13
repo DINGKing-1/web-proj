@@ -611,7 +611,7 @@ onMounted(load)
                 退货已确认，货款已退回余额
               </span>
               <button
-                v-if="o.status === 'received'"
+                v-if="o.status === 'received' && o.rating"
                 class="btn btn-success btn-sm"
                 :disabled="actingId === o.id"
                 @click="complete(o)"

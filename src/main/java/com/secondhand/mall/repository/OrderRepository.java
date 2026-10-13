@@ -50,8 +50,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("SELECT o FROM Order o WHERE o.sellerUsername = :username AND o.status = :status ORDER BY o.createdAt DESC")
     List<Order> findBySellerUsernameAndStatusOrderByCreatedAtDesc(@Param("username") String username, @Param("status") String status);
 
-    /** 卖家待结算订单（已下单未完结且未打款） */
-    @Query("SELECT o FROM Order o WHERE o.sellerUsername = :username AND o.sellerPaid = false AND o.status NOT IN ('cancelled','completed','refunded')")
+    /** 卖家待结算订单：已付款且货款未打给卖家（不含待付款/售后争议中/终态） */
+    @Query("SELECT o FROM Order o WHERE o.sellerUsername = :username AND o.sellerPaid = false AND o.status IN ('unshipped','shipped','received')")
     List<Order> findSellerUnpaidOrders(@Param("username") String username);
 
     /** 自动确认：某状态且创建时间早于指定时刻 */
@@ -61,8 +61,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("SELECT o FROM Order o WHERE o.status = 'after_sale' AND o.afterSaleAt IS NOT NULL AND o.afterSaleAt < :deadline")
     List<Order> findOverdueAfterSale(@Param("deadline") java.time.LocalDateTime deadline);
 
-    /** 销量统计：按商品聚合未取消/未退款订单的件数（quantity 为空按 1 计） */
-    @Query("SELECT o.productId, COALESCE(SUM(CASE WHEN o.quantity IS NULL THEN 1 ELSE o.quantity END), 0) FROM Order o WHERE o.status NOT IN ('cancelled','refunded') GROUP BY o.productId")
+    /** 销量统计：按商品聚合已付款且未取消/未退款订单的件数（quantity 为空按 1 计；待付款不算成交） */
+    @Query("SELECT o.productId, COALESCE(SUM(CASE WHEN o.quantity IS NULL THEN 1 ELSE o.quantity END), 0) FROM Order o WHERE o.status NOT IN ('cancelled','refunded','pending_payment') GROUP BY o.productId")
     List<Object[]> countSalesByProductId();
 
     List<Order> findAllByOrderByCreatedAtDesc();

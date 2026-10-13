@@ -28,15 +28,17 @@ public class OrderService {
 
     private static final Map<String, List<String>> VALID_TRANSITIONS = Map.of(
         OrderStatus.PENDING_PAYMENT, List.of(OrderStatus.UNSHIPPED, OrderStatus.CANCELLED),
-        OrderStatus.UNSHIPPED, List.of(OrderStatus.SHIPPED),
+        OrderStatus.UNSHIPPED, List.of(OrderStatus.SHIPPED, OrderStatus.CANCELLED),
         OrderStatus.SHIPPED,   List.of(OrderStatus.RECEIVED, OrderStatus.SHIPPED),
         OrderStatus.RECEIVED,  List.of(OrderStatus.COMPLETED),
-        // 售后链路：申请 → 卖家同意退货/拒绝 → 买家寄回 → 卖家确认收货退款
-        OrderStatus.AFTER_SALE, List.of(OrderStatus.CANCELLED, OrderStatus.SHIPPED,
-                                        OrderStatus.RECEIVED, OrderStatus.RETURN_SHIPPING),
-        OrderStatus.RETURN_SHIPPING, List.of(OrderStatus.RETURN_SENT, OrderStatus.CANCELLED, OrderStatus.RECEIVED),
+        // 售后链路只走专用接口：申请 → 同意退货 → 寄回 → 确认退款。
+        // 禁止从售后态直改 cancelled（会不退货全额退款）或打回 shipped/received。
+        OrderStatus.AFTER_SALE, List.of(OrderStatus.RETURN_SHIPPING),
+        OrderStatus.RETURN_SHIPPING, List.of(OrderStatus.RETURN_SENT),
         OrderStatus.RETURN_SENT, List.of(OrderStatus.REFUNDED),
-        OrderStatus.REFUNDED, List.of()
+        OrderStatus.REFUNDED, List.of(),
+        OrderStatus.COMPLETED, List.of(),
+        OrderStatus.CANCELLED, List.of()
     );
 
     private final OrderRepository orderRepository;
@@ -82,19 +84,24 @@ public class OrderService {
             throw new RuntimeException("没有可购买的商品");
         }
 
-        List<Order> orders = new ArrayList<>(items.size());
-        // 按 productId 排序加锁，避免并发批量下单反序加锁死锁
-        List<OrderItemRequest> sorted = items.stream()
-                .sorted(java.util.Comparator.comparing(OrderItemRequest::productId,
-                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
-                .toList();
-        for (OrderItemRequest item : sorted) {
-            orders.add(createOrder(
+        // 按 productId 排序加锁，避免并发批量下单反序加锁死锁；
+        // 建单后按请求 items 原顺序回填返回，保证前端 orderIds[i] 对应 items[i]
+        //（结算页据此把优惠券核销到金额最高的那单，顺序错位会核销到别的订单）
+        List<int[]> sortedIdx = new ArrayList<>(items.size());
+        for (int i = 0; i < items.size(); i++) sortedIdx.add(new int[]{i});
+        sortedIdx.sort(java.util.Comparator.comparing(
+                (int[] pair) -> items.get(pair[0]).productId(),
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
+        Order[] byIndex = new Order[items.size()];
+        for (int[] pair : sortedIdx) {
+            OrderItemRequest item = items.get(pair[0]);
+            byIndex[pair[0]] = createOrder(
                 buyerUsername, item.productId(), item.productPrice(), item.productName(),
                 item.category(), item.imageUrl(), receiverName, receiverPhone, receiverAddress,
                 paymentMethod, item.quantity() > 0 ? item.quantity() : 1
-            ));
+            );
         }
+        List<Order> orders = new ArrayList<>(java.util.Arrays.asList(byIndex));
 
         if (cartItemIds != null && !cartItemIds.isEmpty()) {
             for (Long cartItemId : cartItemIds) {
@@ -389,6 +396,8 @@ public class OrderService {
             throw new RuntimeException("订单不在售后中");
         }
         order.setStatus(OrderStatus.RETURN_SHIPPING);
+        // 买家寄回窗口（7 天）自同意退货起算，而非申请时间
+        order.setReturnApprovedAt(LocalDateTime.now());
         return orderRepository.save(order);
     }
 
@@ -468,6 +477,7 @@ public class OrderService {
         order.setStatus(back);
         order.setPrevStatus(null);
         order.setAfterSaleAt(null);
+        order.setReturnApprovedAt(null);
         return orderRepository.save(order);
     }
 
@@ -491,6 +501,7 @@ public class OrderService {
         order.setStatus(back);
         order.setPrevStatus(null);
         order.setAfterSaleAt(null);
+        order.setReturnApprovedAt(null);
         return orderRepository.save(order);
     }
 
@@ -553,15 +564,30 @@ public class OrderService {
             couponService.releaseByOrder(order.getId());
         }
 
-        Product product = productRepository.findByIdForUpdate(order.getProductId()).orElse(null);
-        if (product != null) {
-            int restored = product.getQuantity() != null ? product.getQuantity() : 0;
-            product.setQuantity(restored + refundQty);
-            if (ProductStatus.SOLD.equals(product.getStatus())) {
-                product.setStatus(ProductStatus.ACTIVE);
+        // 仅货在卖方侧才回补库存：未发货可回补；已发货/售后中货在买家或途上，
+        // 回补会造出卖家手里没有的幽灵库存，导致后续成交无法履约
+        if (stockHeldBySeller(order.getStatus())) {
+            Product product = productRepository.findByIdForUpdate(order.getProductId()).orElse(null);
+            if (product != null) {
+                int restored = product.getQuantity() != null ? product.getQuantity() : 0;
+                product.setQuantity(restored + refundQty);
+                if (ProductStatus.SOLD.equals(product.getStatus())) {
+                    product.setStatus(ProductStatus.ACTIVE);
+                }
+                productRepository.save(product);
             }
-            productRepository.save(product);
         }
+    }
+
+    /**
+     * 货权是否还在卖方侧（可安全回补库存）：
+     * pending_payment/unshipped 货未出库；return_sent 退货已在途/已收（退款即回补）。
+     * shipped/received/after_sale/return_shipping 货在买家或途上，禁止回补。
+     */
+    private static boolean stockHeldBySeller(String status) {
+        return OrderStatus.PENDING_PAYMENT.equals(status)
+                || OrderStatus.UNSHIPPED.equals(status)
+                || OrderStatus.RETURN_SENT.equals(status);
     }
 
     @Transactional
@@ -628,15 +654,18 @@ public class OrderService {
         java.math.BigDecimal settledIncome = java.math.BigDecimal.ZERO;
         long salesCount = 0;
         for (Order o : orders) {
-            if (OrderStatus.CANCELLED.equals(o.getStatus()) || OrderStatus.PENDING_PAYMENT.equals(o.getStatus())) {
+            String st = o.getStatus();
+            // 成交口径：已付款且未取消/未退款（待付款不算；退款单剔除）
+            if (OrderStatus.CANCELLED.equals(st) || OrderStatus.PENDING_PAYMENT.equals(st)
+                    || OrderStatus.REFUNDED.equals(st)) {
                 continue;
             }
             salesCount++;
             if (Boolean.TRUE.equals(o.getSellerPaid())) {
                 settledIncome = settledIncome.add(paidTotal(o));
-            } else if (OrderStatus.REFUNDED.equals(o.getStatus())) {
-                // 已退款不计入收入
-            } else if (!OrderStatus.AFTER_SALE.equals(o.getStatus())) {
+            } else if (OrderStatus.UNSHIPPED.equals(st) || OrderStatus.SHIPPED.equals(st)
+                    || OrderStatus.RECEIVED.equals(st)) {
+                // 待结算 = 货款托管中；售后争议中的一律不计入，避免虚高
                 pendingIncome = pendingIncome.add(paidTotal(o));
             }
         }
@@ -659,7 +688,8 @@ public class OrderService {
                 if (o.getCreatedAt() == null || o.getCreatedAt().isBefore(start) || !o.getCreatedAt().isBefore(end)) {
                     continue;
                 }
-                if (OrderStatus.CANCELLED.equals(o.getStatus()) || OrderStatus.PENDING_PAYMENT.equals(o.getStatus())) {
+                if (OrderStatus.CANCELLED.equals(o.getStatus()) || OrderStatus.PENDING_PAYMENT.equals(o.getStatus())
+                        || OrderStatus.REFUNDED.equals(o.getStatus())) {
                     continue;
                 }
                 count++;
@@ -743,7 +773,14 @@ public class OrderService {
             if (!order.getUsername().equals(currentUsername)) {
                 throw new RuntimeException("无权操作此订单");
             }
-            // 退款 + 恢复库存，与 cancelOrder / approveAfterSale 一致
+            // 售后中/已寄回一律禁止直改 cancelled：否则买家可不退货套走全款。
+            // 售后撤销请走 cancelAfterSale（不退钱），退款只能由确认收货退货/平台仲裁触发。
+            String cur = order.getStatus();
+            if (OrderStatus.AFTER_SALE.equals(cur) || OrderStatus.RETURN_SHIPPING.equals(cur)
+                    || OrderStatus.RETURN_SENT.equals(cur) || OrderStatus.REFUNDED.equals(cur)) {
+                throw new RuntimeException("售后中的订单不能直接取消，请走售后撤销或等待处理");
+            }
+            // 退款 + 恢复库存，与 cancelOrder 一致
             settleRefund(order);
         } else {
             throw new RuntimeException("该状态不可直接设置: " + status);

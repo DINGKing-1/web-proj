@@ -20,6 +20,7 @@ const selectedAddressId = ref(null)
 const balance = ref(0)
 const loading = ref(true)
 const submitting = ref(false)
+const savingAddr = ref(false)
 const showAddrForm = ref(false)
 /** 支付方式：balance / alipay / wechat */
 const payMethod = ref('balance')
@@ -162,11 +163,17 @@ async function load() {
 }
 
 async function addAddress() {
+  if (savingAddr.value) return
   const f = addrForm.value
   if (!f.receiverName.trim() || !f.phone.trim() || !f.detail.trim()) {
     showToast('请填写收货人、手机号和详细地址', 'warning')
     return
   }
+  if (!/^1\d{10}$/.test(f.phone.trim())) {
+    showToast('手机号格式不正确', 'warning')
+    return
+  }
+  savingAddr.value = true
   const d = await userApi.addAddress({
     receiverName: f.receiverName.trim(),
     phone: f.phone.trim(),
@@ -176,6 +183,7 @@ async function addAddress() {
     detail: f.detail.trim(),
     isDefault: addresses.value.length === 0
   })
+  savingAddr.value = false
   if (d.success) {
     showToast('地址添加成功')
     showAddrForm.value = false
@@ -277,26 +285,23 @@ async function submitOrders() {
 
   submitting.value = false
 
+  // 订单已创建就必须清结算上下文：否则后退/重进结算页再提交会重复下单
+  sessionStorage.removeItem('checkoutProductId')
+  sessionStorage.removeItem('checkoutQuantity')
+  sessionStorage.removeItem('checkout')
+  sessionStorage.removeItem('checkoutCartIds')
+
   if (paidCount === orderIds.length) {
-    // 仅支付成功才清除结算上下文，失败时保留以便重试
-    sessionStorage.removeItem('checkoutProductId')
-    sessionStorage.removeItem('checkoutQuantity')
-    sessionStorage.removeItem('checkout')
-    sessionStorage.removeItem('checkoutCartIds')
     store.refreshCartCount()
     store.refreshSession()
     showToast(`${methodLabel}成功！`)
     setTimeout(() => router.push('/my-orders'), 800)
   } else if (paidCount > 0) {
-    sessionStorage.removeItem('checkoutProductId')
-    sessionStorage.removeItem('checkoutQuantity')
-    sessionStorage.removeItem('checkout')
-    sessionStorage.removeItem('checkoutCartIds')
     store.refreshCartCount()
     showToast(`已支付 ${paidCount}/${orderIds.length} 单，${failedMsg}，请到订单页完成剩余支付`, 'warning')
     setTimeout(() => router.push('/my-orders'), 1200)
   } else {
-    showToast(failedMsg || '支付失败，订单已创建，请到订单页支付', 'error')
+    showToast(failedMsg || '支付失败，订单已创建，请到我的订单完成支付', 'error')
     setTimeout(() => router.push('/my-orders'), 1200)
   }
 }
@@ -376,7 +381,7 @@ onMounted(load)
               <label>详细地址 <span class="required">*</span></label>
               <input v-model="addrForm.detail" class="form-input" />
             </div>
-            <button class="btn btn-primary" @click="addAddress">保存地址</button>
+            <button class="btn btn-primary" :disabled="savingAddr" @click="addAddress">{{ savingAddr ? '保存中…' : '保存地址' }}</button>
           </div>
 
           <div v-if="!addresses.length && !showAddrForm" class="muted">

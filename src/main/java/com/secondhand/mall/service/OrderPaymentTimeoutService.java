@@ -10,7 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.List;
 /**
  * 待付款订单超时自动关单（默认 30 分钟）。
  * 关单时回补库存、通知双方；未扣款故无需退款。
+ * 每单独立事务：单笔失败只回滚自己，不拖垮整批、也不会半提交。
  */
 @Service
 public class OrderPaymentTimeoutService {
@@ -28,13 +30,16 @@ public class OrderPaymentTimeoutService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final NotificationService notificationService;
+    private final TransactionTemplate txTemplate;
 
     public OrderPaymentTimeoutService(OrderRepository orderRepository,
                                       ProductRepository productRepository,
-                                      NotificationService notificationService) {
+                                      NotificationService notificationService,
+                                      PlatformTransactionManager transactionManager) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.notificationService = notificationService;
+        this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
     /** 每 5 分钟扫一次超时未支付订单 */
@@ -50,50 +55,50 @@ public class OrderPaymentTimeoutService {
         }
     }
 
-    @Transactional
     public int cancelExpiredPending() {
         LocalDateTime deadline = LocalDateTime.now().minusMinutes(TIMEOUT_MINUTES);
         List<Order> expired = orderRepository.findByStatusAndCreatedAtBefore(
                 OrderStatus.PENDING_PAYMENT, deadline);
         int count = 0;
         for (Order o : expired) {
-            if (closeOne(o)) count++;
+            try {
+                // 每单独立事务：异常在此抛出并回滚本单，catch 在事务外，不吞半提交
+                Boolean done = txTemplate.execute(status -> closeOne(o));
+                if (Boolean.TRUE.equals(done)) count++;
+            } catch (Exception e) {
+                log.warn("[PayTimeout] 订单 {} 关闭失败: {}", o.getId(), e.getMessage());
+            }
         }
         return count;
     }
 
     private boolean closeOne(Order o) {
-        try {
-            Order order = orderRepository.findByIdForUpdate(o.getId()).orElse(null);
-            if (order == null || !OrderStatus.PENDING_PAYMENT.equals(order.getStatus())) {
-                return false;
-            }
-            if (order.getCreatedAt() != null
-                    && order.getCreatedAt().isAfter(LocalDateTime.now().minusMinutes(TIMEOUT_MINUTES))) {
-                return false;
-            }
-
-            int qty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
-            Product product = productRepository.findByIdForUpdate(order.getProductId()).orElse(null);
-            if (product != null) {
-                int restored = product.getQuantity() != null ? product.getQuantity() : 0;
-                product.setQuantity(restored + qty);
-                if (ProductStatus.SOLD.equals(product.getStatus())) {
-                    product.setStatus(ProductStatus.ACTIVE);
-                }
-                productRepository.save(product);
-            }
-
-            order.setStatus(OrderStatus.CANCELLED);
-            orderRepository.save(order);
-
-            notificationService.push(order.getUsername(), "order", "订单已自动关闭",
-                    "「" + order.getProductName() + "」超时未支付，订单已关闭，库存已释放",
-                    "order", String.valueOf(order.getId()));
-            return true;
-        } catch (Exception e) {
-            log.warn("[PayTimeout] 订单 {} 关闭失败: {}", o.getId(), e.getMessage());
+        Order order = orderRepository.findByIdForUpdate(o.getId()).orElse(null);
+        if (order == null || !OrderStatus.PENDING_PAYMENT.equals(order.getStatus())) {
             return false;
         }
+        if (order.getCreatedAt() != null
+                && order.getCreatedAt().isAfter(LocalDateTime.now().minusMinutes(TIMEOUT_MINUTES))) {
+            return false;
+        }
+
+        int qty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
+        Product product = productRepository.findByIdForUpdate(order.getProductId()).orElse(null);
+        if (product != null) {
+            int restored = product.getQuantity() != null ? product.getQuantity() : 0;
+            product.setQuantity(restored + qty);
+            if (ProductStatus.SOLD.equals(product.getStatus())) {
+                product.setStatus(ProductStatus.ACTIVE);
+            }
+            productRepository.save(product);
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        orderRepository.save(order);
+
+        notificationService.push(order.getUsername(), "order", "订单已自动关闭",
+                "「" + order.getProductName() + "」超时未支付，订单已关闭，库存已释放",
+                "order", String.valueOf(order.getId()));
+        return true;
     }
 }

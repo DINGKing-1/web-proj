@@ -155,12 +155,13 @@ public class SupportController extends BaseApiController {
         }
     }
 
-    /** 管理端拉取消息（与用户聊天共用接口，这里放便捷别名） */
+    /** 管理端拉取消息（需管理员；路径含 /admin/ 不得只校验登录） */
     @GetMapping("/admin/support/messages/{roomId}")
     public Map<String, Object> supportMessages(@PathVariable Long roomId,
                                                @RequestParam(required = false) Long sinceId,
                                                HttpSession session) {
         try {
+            checkSupportAdmin(session);
             String username = getLoginUsername(session);
             List<ChatMessage> messages = chatService.getMessages(roomId, username, sinceId);
             chatService.markAsRead(roomId, username);
@@ -173,6 +174,7 @@ public class SupportController extends BaseApiController {
     @PostMapping("/admin/support/message")
     public Map<String, Object> supportReply(@RequestBody Map<String, Object> request, HttpSession session) {
         try {
+            checkSupportAdmin(session);
             String username = getLoginUsername(session);
             Long roomId = Long.parseLong(request.get("roomId").toString());
             String content = String.valueOf(request.get("content"));

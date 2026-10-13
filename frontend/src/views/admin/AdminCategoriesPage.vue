@@ -12,6 +12,7 @@ const store = useUserStore()
 const items = ref([])
 const loading = ref(true)
 const editing = ref(null) // null | 'new' | id
+const saving = ref(false)
 const form = ref({ name: '', sort: 0, enabled: true })
 
 async function load() {
@@ -39,15 +40,18 @@ function openEdit(row) {
 }
 
 async function save() {
+  if (saving.value) return
   if (!form.value.name.trim()) {
     showToast('请填写分类名称', 'warning')
     return
   }
   const payload = { ...form.value, sort: Number(form.value.sort) || 0 }
+  saving.value = true
   const d =
     editing.value === 'new'
       ? await categoryApi.create(payload)
       : await categoryApi.update(editing.value, payload)
+  saving.value = false
   if (d.success) {
     showToast('已保存')
     editing.value = null
@@ -122,7 +126,7 @@ onMounted(load)
       </label>
       <div class="actions">
         <button type="button" class="btn btn-outline" @click="editing = null">取消</button>
-        <button type="button" class="btn btn-primary" @click="save">保存</button>
+        <button type="button" class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
       </div>
     </div>
 

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { userApi, productApi, offerApi, couponApi } from '@/api'
 import { formatPrice, formatTime, imgOf, onImgError, getBrowseHistory, clearBrowseHistory } from '@/api/client'
@@ -28,10 +28,13 @@ const profile = ref({
   lastActiveTime: ''
 })
 const form = ref({ nickname: '', email: '', phone: '' })
-const pwdForm = ref({ currentPassword: '', password: '', confirmPassword: '' })
+const pwdForm = ref({ currentPassword: '', password: '', confirmPassword: '', code: '' })
 const myProducts = ref([])
 const saving = ref(false)
 const changingPwd = ref(false)
+const sendingPwdCode = ref(false)
+const pwdCodeCooldown = ref(0)
+let pwdCooldownTimer = null
 const uploadingAvatar = ref(false)
 const avatarInput = ref(null)
 const CONDITIONS = ['全新', '几乎全新', '轻微使用', '明显使用', '重度使用']
@@ -175,6 +178,13 @@ async function rejectOffer(o) {
 }
 
 async function cancelOffer(o) {
+  const ok = await confirmDialog({
+    title: '撤销出价',
+    message: `确定撤销对「${o.productName || '该商品'}」的出价吗？撤销后不可恢复。`,
+    okText: '撤销出价',
+    type: 'warning'
+  })
+  if (!ok) return
   offerActing.value = true
   const d = await offerApi.cancel(o.id)
   offerActing.value = false
@@ -338,8 +348,13 @@ async function saveProfile() {
 
 async function changePassword() {
   const f = pwdForm.value
-  if (!f.currentPassword || !f.password || !f.confirmPassword) {
-    showToast('请填写完整密码信息', 'warning')
+  if (!profile.value.email) {
+    showToast('请先绑定邮箱后再修改密码', 'warning')
+    openPanel('profile')
+    return
+  }
+  if (!f.currentPassword || !f.password || !f.confirmPassword || !f.code.trim()) {
+    showToast('请填写完整密码信息与邮箱验证码', 'warning')
     return
   }
   if (f.password.length < 6) {
@@ -351,18 +366,51 @@ async function changePassword() {
     return
   }
   changingPwd.value = true
-  const d = await userApi.update({
+  const d = await userApi.changePassword({
     currentPassword: f.currentPassword,
-    password: f.password
+    password: f.password,
+    code: f.code.trim()
   })
   changingPwd.value = false
   if (d.success) {
-    showToast('密码修改成功')
-    pwdForm.value = { currentPassword: '', password: '', confirmPassword: '' }
+    showToast(d.message || '密码修改成功')
+    pwdForm.value = { currentPassword: '', password: '', confirmPassword: '', code: '' }
   } else {
     showToast(d.message || '修改失败', 'error')
   }
 }
+
+/** 向绑定邮箱发送改密验证码 */
+async function sendPwdCode() {
+  if (!profile.value.email) {
+    showToast('请先绑定邮箱后再修改密码', 'warning')
+    openPanel('profile')
+    return
+  }
+  if (pwdCodeCooldown.value > 0 || sendingPwdCode.value) return
+  sendingPwdCode.value = true
+  const d = await userApi.sendChangePasswordCode()
+  sendingPwdCode.value = false
+  if (d.success) {
+    showToast(d.message || '验证码已发送')
+    pwdCodeCooldown.value = 60
+    pwdCooldownTimer && clearInterval(pwdCooldownTimer)
+    pwdCooldownTimer = setInterval(() => {
+      pwdCodeCooldown.value -= 1
+      if (pwdCodeCooldown.value <= 0) {
+        clearInterval(pwdCooldownTimer)
+        pwdCooldownTimer = null
+      }
+    }, 1000)
+  } else {
+    showToast(d.message || '发送失败', 'error')
+    if (String(d.message || '').includes('绑定邮箱')) openPanel('profile')
+  }
+}
+
+onUnmounted(() => {
+  pwdCooldownTimer && clearInterval(pwdCooldownTimer)
+})
 
 async function onAvatarChange(e) {
   const file = e.target.files?.[0]
@@ -524,6 +572,10 @@ async function saveAddress() {
     showToast('请填写收货人、手机号和详细地址', 'warning')
     return
   }
+  if (!/^1\d{10}$/.test(f.phone.trim())) {
+    showToast('手机号格式不正确', 'warning')
+    return
+  }
   savingAddr.value = true
   const payload = {
     receiverName: f.receiverName.trim(),
@@ -674,8 +726,8 @@ onMounted(load)
             </div>
             <div class="row">
               <div class="form-group">
-                <label>邮箱</label>
-                <input v-model="form.email" type="email" class="form-input" />
+                <label>邮箱 <span class="muted text-xs">（改密需绑定）</span></label>
+                <input v-model="form.email" type="email" class="form-input" placeholder="用于修改密码时接收验证码" />
               </div>
               <div class="form-group">
                 <label>手机号</label>
@@ -883,21 +935,58 @@ onMounted(load)
 
           <div v-else class="card card-pad">
             <h2 class="h2 mb-3">修改密码</h2>
-            <div class="form-group">
-              <label>当前密码</label>
-              <input v-model="pwdForm.currentPassword" type="password" class="form-input" autocomplete="current-password" />
-            </div>
-            <div class="form-group">
-              <label>新密码</label>
-              <input v-model="pwdForm.password" type="password" class="form-input" autocomplete="new-password" />
-            </div>
-            <div class="form-group">
-              <label>确认新密码</label>
-              <input v-model="pwdForm.confirmPassword" type="password" class="form-input" autocomplete="new-password" />
-            </div>
-            <button class="btn btn-primary" :disabled="changingPwd" @click="changePassword">
-              {{ changingPwd ? '提交中…' : '修改密码' }}
+            <p v-if="!profile.email" class="muted text-sm mb-3">
+              修改密码需先绑定邮箱，并通过邮箱验证码验证。请先到「基本资料」填写邮箱并保存。
+            </p>
+            <p v-else class="muted text-sm mb-3">
+              为保障账号安全，修改密码需验证当前密码，并输入发送至绑定邮箱
+              <strong>{{ profile.email }}</strong> 的验证码。
+            </p>
+            <button
+              v-if="!profile.email"
+              class="btn btn-primary mb-3"
+              type="button"
+              @click="openPanel('profile')"
+            >
+              去绑定邮箱
             </button>
+            <template v-else>
+              <div class="form-group">
+                <label>当前密码</label>
+                <input v-model="pwdForm.currentPassword" type="password" class="form-input" autocomplete="current-password" />
+              </div>
+              <div class="form-group">
+                <label>新密码</label>
+                <input v-model="pwdForm.password" type="password" class="form-input" autocomplete="new-password" />
+              </div>
+              <div class="form-group">
+                <label>确认新密码</label>
+                <input v-model="pwdForm.confirmPassword" type="password" class="form-input" autocomplete="new-password" />
+              </div>
+              <div class="form-group">
+                <label>邮箱验证码</label>
+                <div class="code-row">
+                  <input
+                    v-model="pwdForm.code"
+                    class="form-input"
+                    inputmode="numeric"
+                    maxlength="6"
+                    placeholder="6 位验证码"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-outline code-btn"
+                    :disabled="sendingPwdCode || pwdCodeCooldown > 0"
+                    @click="sendPwdCode"
+                  >
+                    {{ pwdCodeCooldown > 0 ? `${pwdCodeCooldown}s` : sendingPwdCode ? '发送中…' : '获取验证码' }}
+                  </button>
+                </div>
+              </div>
+              <button class="btn btn-primary" :disabled="changingPwd" @click="changePassword">
+                {{ changingPwd ? '提交中…' : '修改密码' }}
+              </button>
+            </template>
             <hr class="divider" />
             <h3 class="h3 mb-2">注销账号</h3>
             <p class="muted text-sm mb-3">注销后账号进入回收站，可联系管理员恢复。若存在进行中订单，系统会先自动退款并释放库存。</p>
@@ -1464,6 +1553,19 @@ onMounted(load)
   justify-content: flex-end;
   gap: 10px;
   margin-top: 12px;
+}
+
+.code-row {
+  display: flex;
+  gap: 8px;
+}
+.code-row .form-input {
+  flex: 1;
+}
+.code-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  min-width: 110px;
 }
 </style>
 

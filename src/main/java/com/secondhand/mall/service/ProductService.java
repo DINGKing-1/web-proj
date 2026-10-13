@@ -178,7 +178,47 @@ public class ProductService {
         return products;
     }
 
+    /**
+     * 公开详情：仅返回在售商品。
+     * 待审/驳回/下架/回收站一律不可被未登录或路人读取（防审核绕过与已删内容外泄）。
+     */
+    public Optional<Product> getPublicProductById(Long id) {
+        Optional<Product> opt = productRepository.findById(id);
+        if (opt.isEmpty()) return Optional.empty();
+        Product p = opt.get();
+        if (!ProductStatus.ACTIVE.equals(p.getStatus())) {
+            return Optional.empty();
+        }
+        fillSellerAvatar(p);
+        return Optional.of(p);
+    }
+
+    /**
+     * 详情（带访问者）：路人仅见在售；卖家可见自己的待审/驳回/下架；管理员可见全部。
+     */
+    public Optional<Product> getProductById(Long id, String viewerUsername) {
+        Optional<Product> opt = productRepository.findById(id);
+        if (opt.isEmpty()) return Optional.empty();
+        Product p = opt.get();
+        boolean active = ProductStatus.ACTIVE.equals(p.getStatus());
+        if (!active) {
+            boolean owner = viewerUsername != null
+                    && viewerUsername.equals(p.getSellerUsername());
+            boolean admin = viewerUsername != null
+                    && userRepository != null
+                    && userRepository.findByUsername(viewerUsername)
+                            .map(u -> "admin".equals(u.getRole()))
+                            .orElse(false);
+            if (!owner && !admin) {
+                return Optional.empty();
+            }
+        }
+        fillSellerAvatar(p);
+        return Optional.of(p);
+    }
+
     public Optional<Product> getProductById(Long id) {
+        // 兼容内部调用（聊天建房等）：调用方自行校验业务约束
         Optional<Product> opt = productRepository.findById(id);
         opt.ifPresent(this::fillSellerAvatar);
         return opt;

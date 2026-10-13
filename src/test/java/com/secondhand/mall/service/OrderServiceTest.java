@@ -550,6 +550,71 @@ class OrderServiceTest {
         assertNull(restored.getAfterSaleAt());
     }
 
+    /**
+     * 回归：售后中禁止走 PUT /api/orders/{id} 直改 cancelled 套取全款。
+     * 买家必须走 cancelAfterSale（不退钱）或确认收货退货后才退款。
+     */
+    @Test
+    void testAfterSale_CannotForceCancelForRefund() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+        orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+        orderService.applyAfterSale(order.getId(), "buyer1", "想白嫖");
+        orderService.approveAfterSale(order.getId(), "seller1");
+        orderService.submitReturnTracking(order.getId(), "buyer1", "FAKE123");
+
+        // 售后已寄回：直改 cancelled 必须被拒绝
+        assertThrows(RuntimeException.class,
+                () -> orderService.updateOrderStatus(order.getId(), "cancelled", "buyer1"),
+                "售后中订单禁止直改 cancelled");
+
+        // after_sale 阶段同样禁止（用另一件商品，避免复用已售罄库存）
+        Product product2 = createTestProduct("seller1", 100.0, 1);
+        Order order2 = createAndPay("buyer1", product2.getId(), 100.0, "Test Product2", 1);
+        orderService.updateOrderStatus(order2.getId(), "shipped", "seller1");
+        orderService.applyAfterSale(order2.getId(), "buyer1", "再试一次");
+        assertThrows(RuntimeException.class,
+                () -> orderService.updateOrderStatus(order2.getId(), "cancelled", "buyer1"));
+        // 也不允许打回 shipped/received 抹掉售后上下文
+        assertThrows(RuntimeException.class,
+                () -> orderService.updateOrderStatus(order2.getId(), "shipped", "seller1"));
+        assertThrows(RuntimeException.class,
+                () -> orderService.updateOrderStatus(order2.getId(), "received", "buyer1"));
+
+        // 钱仍在托管：两笔实付共 200，买家余额应仍是 9800（未被套现退回）
+        User buyer = userRepository.findByUsername("buyer1").orElseThrow();
+        assertEquals(0, new BigDecimal("9800.00").compareTo(buyer.getBalance()),
+                "售后套现路径不得把钱退回买家");
+    }
+
+    /** 回归：return_shipping 禁止直改 received 再 completed 打款给卖家 */
+    @Test
+    void testReturnShipping_CannotSkipReturnToComplete() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+        orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+        orderService.applyAfterSale(order.getId(), "buyer1", "退货");
+        orderService.approveAfterSale(order.getId(), "seller1");
+
+        assertThrows(RuntimeException.class,
+                () -> orderService.updateOrderStatus(order.getId(), "received", "buyer1"),
+                "待寄回阶段不能直接确认收货");
+        assertThrows(RuntimeException.class,
+                () -> orderService.updateOrderStatus(order.getId(), "completed", "buyer1"),
+                "待寄回阶段不能直接完成打款");
+
+        // 卖家此时未收款
+        User seller = userRepository.findByUsername("seller1").orElseThrow();
+        assertEquals(0, new BigDecimal("10000.00").compareTo(seller.getBalance()),
+                "售后未完结不得给卖家打款");
+    }
+
     /** 卖家超时未处理的售后由定时任务兜底同意退货 */
     @Test
     void testAfterSaleTimeout_AutoApprovesOverdue() {

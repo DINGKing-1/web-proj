@@ -93,6 +93,7 @@ public class ApiController extends BaseApiController {
                     .put("nickname", user.getNickname())
                     .put("balance", user.getBalance())
                     .put("avatar", user.getAvatar())
+                    .put("role", user.getRole())
                     .toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
@@ -189,9 +190,9 @@ public class ApiController extends BaseApiController {
 
             Object imageObj = request.get("imageUrl");
             if (imageObj instanceof List) {
-                product.setImageUrls((List<String>) imageObj);
+                product.setImageUrls(sanitizeProductImages((List<String>) imageObj));
             } else if (imageObj instanceof String && !((String) imageObj).isEmpty()) {
-                product.setImageUrl((String) imageObj);
+                product.setImageUrl(sanitizeProductImages(List.of((String) imageObj)).get(0));
             }
 
             Object qtyObj = request.get("quantity");
@@ -233,10 +234,14 @@ public class ApiController extends BaseApiController {
     }
 
     @GetMapping("/products/{id}")
-    public Map<String, Object> getProduct(@PathVariable Long id) {
-        productService.incrementViewCount(id);
-        return productService.getProductById(id)
-                .map(product -> ok("获取成功").put("product", product).toMap())
+    public Map<String, Object> getProduct(@PathVariable Long id, HttpSession session) {
+        String viewer = (String) session.getAttribute("username");
+        // 路人仅见在售；卖家可看自己的待审/驳回，防审核内容外泄
+        return productService.getProductById(id, viewer)
+                .map(product -> {
+                    productService.incrementViewCount(id);
+                    return ok("获取成功").put("product", product).toMap();
+                })
                 .orElseGet(() -> fail("商品不存在").toMap());
     }
 
@@ -278,9 +283,9 @@ public class ApiController extends BaseApiController {
             if (request.containsKey("imageUrl")) {
                 Object imageObj = request.get("imageUrl");
                 if (imageObj instanceof List) {
-                    updates.setImageUrls((List<String>) imageObj);
+                    updates.setImageUrls(sanitizeProductImages((List<String>) imageObj));
                 } else if (imageObj instanceof String) {
-                    updates.setImageUrl((String) imageObj);
+                    updates.setImageUrl(sanitizeProductImages(List.of((String) imageObj)).get(0));
                 }
             }
             if (request.containsKey("name")) updates.setName((String) request.get("name"));
@@ -446,13 +451,12 @@ public class ApiController extends BaseApiController {
     public Map<String, Object> updateUser(@RequestBody Map<String, Object> request, HttpSession session) {
         try {
             String username = getLoginUsername(session);
+            // 仅更新资料；改密走 /api/user/change-password（需绑定邮箱 + 邮箱验证码）
             User updated = userService.updateUser(
                 username,
                 (String) request.get("nickname"),
                 (String) request.get("email"),
                 (String) request.get("phone"),
-                (String) request.get("currentPassword"),
-                (String) request.get("password"),
                 (String) request.get("avatar")
             );
             return ok("更新成功")
@@ -832,6 +836,27 @@ public class ApiController extends BaseApiController {
                     .orElse("");
         }
         return String.valueOf(raw);
+    }
+
+    /**
+     * 商品图白名单：只接受服务端上传产物 /product-images/，
+     * 拒绝外链/协议头/路径穿越，防钓鱼图与存储型 XSS。
+     */
+    private static List<String> sanitizeProductImages(List<String> urls) {
+        if (urls == null) return List.of();
+        List<String> cleaned = new ArrayList<>();
+        for (String raw : urls) {
+            if (raw == null) continue;
+            String u = raw.trim();
+            if (u.isEmpty()) continue;
+            if (!u.startsWith("/product-images/")
+                    || u.contains("..") || u.contains("\\")
+                    || u.contains("://") || u.contains("\n") || u.contains("\r")) {
+                throw new RuntimeException("非法的图片地址");
+            }
+            cleaned.add(u);
+        }
+        return cleaned;
     }
 
     /** 通用媒体上传（聊天图片/视频），与评价媒体同一套校验与落盘 */

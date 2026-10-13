@@ -54,6 +54,8 @@ async function readAll() {
     unread.value = 0
     store.notifyUnread = 0 // 全部已读，角标归零
     load()
+  } else {
+    showToast(d.message || '操作失败', 'error')
   }
 }
 

@@ -88,6 +88,41 @@ public class UserController {
         }
     }
 
+    /** 发送修改密码验证码到绑定邮箱（需登录；未绑定邮箱不可改密） */
+    @PostMapping("/change-password-code")
+    public Map<String, Object> sendChangePasswordCode(HttpSession session) {
+        try {
+            Object usernameAttr = session.getAttribute("username");
+            if (usernameAttr == null) {
+                return Map.of("success", false, "message", "请先登录");
+            }
+            userService.sendChangePasswordCode(usernameAttr.toString());
+            return Map.of("success", true, "message", "验证码已发送至绑定邮箱，请查收");
+        } catch (RuntimeException e) {
+            return Map.of("success", false, "message", e.getMessage());
+        }
+    }
+
+    /** 登录后修改密码：需已绑定邮箱 + 当前密码 + 邮箱验证码 */
+    @PostMapping("/change-password")
+    public Map<String, Object> changePassword(@RequestBody Map<String, String> body, HttpSession session) {
+        try {
+            Object usernameAttr = session.getAttribute("username");
+            if (usernameAttr == null) {
+                return Map.of("success", false, "message", "请先登录");
+            }
+            userService.changePassword(
+                    usernameAttr.toString(),
+                    body.get("currentPassword"),
+                    body.get("password"),
+                    body.get("code"),
+                    session.getId());
+            return Map.of("success", true, "message", "密码修改成功，其他设备已下线");
+        } catch (RuntimeException e) {
+            return Map.of("success", false, "message", e.getMessage());
+        }
+    }
+
     /** 账单流水：全部资金变动落库（充值/支付/退款/结算/提现） */
     @GetMapping("/wallet")
     public Map<String, Object> wallet(HttpSession session) {
@@ -112,7 +147,7 @@ public class UserController {
             String username = usernameAttr.toString();
             String password = body.get("password");
             userService.deleteAccount(username, password);
-            walletService.clearUser(username);
+            // 钱包流水保留：软删除可恢复，清掉流水会丢对账账本并重置模拟充值累计上限
             session.invalidate();
             return Map.of("success", true, "message", "账号已注销");
         } catch (RuntimeException e) {

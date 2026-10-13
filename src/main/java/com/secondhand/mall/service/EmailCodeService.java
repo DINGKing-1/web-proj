@@ -13,8 +13,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * 找回密码邮箱验证码。
+ * 邮箱验证码（找回密码 / 登录后修改密码）。
  * 配置了 MAIL_USERNAME 时走真实 SMTP 发信；否则开发模式：验证码打进日志，便于本地联调。
+ * 不同用途的验证码相互隔离，找回密码的码不能拿来改密，反之亦然。
  */
 @Service
 public class EmailCodeService {
@@ -24,11 +25,18 @@ public class EmailCodeService {
     private static final long RESEND_INTERVAL_MS = 60 * 1000L;
     private static final int MAX_VERIFY_TRIES = 5;
 
+    /** 找回密码 */
+    public static final String PURPOSE_RESET = "reset";
+    /** 登录后修改密码 */
+    public static final String PURPOSE_CHANGE = "change";
+    /** 绑定/更换邮箱（码发往新邮箱） */
+    public static final String PURPOSE_EMAIL = "email";
+
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final String mailFrom;
     private final boolean logMailCodes;
 
-    /** key = username|email → CodeRecord */
+    /** key = purpose|username|email → CodeRecord */
     private final Map<String, CodeRecord> store = new ConcurrentHashMap<>();
 
     private static final class CodeRecord {
@@ -53,8 +61,8 @@ public class EmailCodeService {
     }
 
     /** 生成并发送验证码 */
-    public void sendResetCode(String username, String email) {
-        String key = key(username, email);
+    public void sendCode(String username, String email, String purpose) {
+        String key = key(purpose, username, email);
         long now = System.currentTimeMillis();
         CodeRecord prev = store.get(key);
         if (prev != null && now - prev.lastSendAt < RESEND_INTERVAL_MS) {
@@ -64,8 +72,15 @@ public class EmailCodeService {
         String code = String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
         store.put(key, new CodeRecord(code, now + CODE_TTL_MS, now));
 
-        String subject = "【优品汇】找回密码验证码";
-        String text = "您好，\n\n您正在重置优品汇账号密码。\n验证码：" + code
+        boolean isChange = PURPOSE_CHANGE.equals(purpose);
+        boolean isEmail = PURPOSE_EMAIL.equals(purpose);
+        String action = isChange ? "修改优品汇账号密码"
+                : isEmail ? "绑定/更换优品汇账号邮箱"
+                : "重置优品汇账号密码";
+        String subject = isChange ? "【优品汇】修改密码验证码"
+                : isEmail ? "【优品汇】邮箱绑定验证码"
+                : "【优品汇】找回密码验证码";
+        String text = "您好，\n\n您正在" + action + "。\n验证码：" + code
                 + "\n\n10 分钟内有效，请勿转发给他人。\n若非本人操作，请忽略本邮件。";
 
         JavaMailSender sender = mailSenderProvider.getIfAvailable();
@@ -77,11 +92,11 @@ public class EmailCodeService {
                 message.setSubject(subject);
                 message.setText(text);
                 sender.send(message);
-                log.info("[Mail] 重置验证码已发送至 {}", mask(email));
+                log.info("[Mail] {}验证码已发送至 {}", isEmail ? "绑邮" : isChange ? "改密" : "重置", mask(email));
             } catch (Exception e) {
                 log.warn("[Mail] 发送失败（{}），验证码已生成但不落日志。原因: {}", mask(email), e.getMessage());
                 if (logMailCodes) {
-                    log.info("[Mail][DEV] {} 重置验证码: {}", mask(email), code);
+                    log.info("[Mail][DEV] {} 验证码: {}", mask(email), code);
                 }
             }
         } else {
@@ -94,8 +109,8 @@ public class EmailCodeService {
     }
 
     /** 校验验证码；通过后立即作废 */
-    public void verifyResetCode(String username, String email, String code) {
-        String key = key(username, email);
+    public void verifyCode(String username, String email, String code, String purpose) {
+        String key = key(purpose, username, email);
         CodeRecord rec = store.get(key);
         if (rec == null) {
             throw new RuntimeException("请先获取验证码");
@@ -115,8 +130,25 @@ public class EmailCodeService {
         store.remove(key);
     }
 
-    private static String key(String username, String email) {
-        return (username == null ? "" : username.trim().toLowerCase())
+    /** 生成并发送找回密码验证码 */
+    public void sendResetCode(String username, String email) {
+        sendCode(username, email, PURPOSE_RESET);
+    }
+
+    /** 校验找回密码验证码；通过后立即作废 */
+    public void verifyResetCode(String username, String email, String code) {
+        verifyCode(username, email, code, PURPOSE_RESET);
+    }
+
+    /** 测试/联调用：查看当前有效验证码（不校验、不作废） */
+    String peekCode(String username, String email, String purpose) {
+        CodeRecord rec = store.get(key(purpose, username, email));
+        return rec == null ? null : rec.code;
+    }
+
+    private static String key(String purpose, String username, String email) {
+        return (purpose == null ? "" : purpose.trim().toLowerCase())
+                + "|" + (username == null ? "" : username.trim().toLowerCase())
                 + "|" + (email == null ? "" : email.trim().toLowerCase());
     }
 

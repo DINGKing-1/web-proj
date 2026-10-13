@@ -66,7 +66,7 @@ curl -X POST -H "X-Requested-With: XMLHttpRequest" http://localhost:8080/interna
 | `Product` | 商品（name, category, originalPrice, secondHandPrice, status, imageUrl, sellerUsername, reviewNote）；sellerPhone 序列化只写不读；status: pending(待审)/active/sold/inactive/rejected(驳回)/deleted |
 | `Order` | 订单（orderNumber, status, quantity, buyerUsername, sellerUsername） |
 | `CartItem` | 购物车项 |
-| `Comment` | 评论（后端保留；商品详情页已不展示买家留言） |
+| `Comment` | 商品留言（详情页「商品留言」区；本人/卖家可删，敏感词校验） |
 | `Favorite` | 收藏 |
 | `ChatRoom` | 聊天室（buyerUsername, sellerUsername） |
 | `ChatMessage` | 聊天消息（messageType: text/image/video） |
@@ -154,7 +154,9 @@ src/main/resources/
 | POST/GET/DELETE | `/api/favorites*` | 收藏 |
 | POST/GET/DELETE | `/api/chat*`、`/api/chat/stream/{roomId}` | 聊天 + SSE |
 | GET/POST/PUT/DELETE | `/api/addresses*` | 收货地址 |
-| GET/PUT | `/api/user`、`/api/user/avatar` | 用户资料 / 头像 |
+| GET/PUT | `/api/user`、`/api/user/avatar` | 用户资料 / 头像（PUT 仅资料，改密走专用接口） |
+| POST | `/api/user/change-password-code` | 发送修改密码验证码到绑定邮箱 |
+| POST | `/api/user/change-password` | 登录后改密（当前密码 + 邮箱验证码） |
 | GET | `/api/cart/count`、`/api/chat/unread` | 角标 |
 
 ### 管理端 API（需 admin）
@@ -236,7 +238,7 @@ src/main/resources/
 - **管理端删除/下架语义**：下架 → `inactive`（可再上架）；删除 → `deleted` 进回收站（主列表不显示，可恢复或彻底删除）
 - 多图：`imageUrl` 逗号分隔，序列化另有 `imageUrls`/`firstImage`
 - 发布请求 `condition` ↔ 实体 `itemCondition`
-- **商品详情页无「买家留言」区**；沟通走右侧/店铺条「联系卖家」（聊天）
+- **商品详情页含「商品留言」区**（评论接口：`GET/POST/DELETE /api/products/{id}/comments`）；实时沟通走「联系卖家」（聊天）
 
 ### 6. 回收站（可追回）
 - **商品**：`status=deleted` 软删除；恢复 → `active`；彻底删除才物理删
@@ -276,12 +278,17 @@ after_sale(待卖家处理) → return_shipping(待买家寄回) → return_sent
 - 结算走 `POST /api/orders/batch`：同事务全成或全败，并清理购物车项
 - **议价单**走 `OrderService.createNegotiatedOrder`：按出价成交，订单金额记协商价；
   与挂牌价的一致性校验只作用于普通下单（防客户端篡改）
-- **退货售后是两段式**：卖家「同意退货」只改状态不退款；买家填 `returnTrackingNumber`
-  寄回后，卖家「确认收货」才 `settleRefund`（退款+回补库存）→ `refunded`。
+- **退货售后是两段式**：卖家「同意退货」只改状态不退款（记 `returnApprovedAt`）；买家填
+  `returnTrackingNumber` 寄回后，卖家「确认收货」才 `settleRefund`（退款+回补库存）→ `refunded`。
   这样避免钱货两空。`refunded` 不计入销量/GMV/待结算。
+- **库存只在货权在卖方侧时回补**（pending_payment/unshipped/return_sent）；已发货后强制退款
+  不回补库存，防止造出卖家手里没有的幽灵库存。
 - **超时兜底**：`OrderAfterSaleTimeoutService` 每 10 分钟扫一次，
-  `after_sale` 超 72 小时未处理 → 自动同意退货并双向通知
+  `after_sale` 超 72 小时未处理 → 自动同意退货并双向通知；买家寄回窗口 7 天
+  **自同意退货（`returnApprovedAt`）起算**，卖家拖 72h 不会吃掉买家寄回时间。
+  超时任务逐单独立事务（单笔失败只回滚自己）。
 - **平台仲裁**：管理员「强制取消」对 after_sale/return_* 同样有效（直接退款结案）
+- **注销/软删除用户**会先强制结算其进行中订单（退款+回补库存），钱包流水保留可对账
 
 ---
 
@@ -323,6 +330,8 @@ after_sale(待卖家处理) → return_shipping(待买家寄回) → return_sent
 - **订单快照**：名称/分类/图片一律取服务端商品，防伪造；运单号仅发货时写入
 - **CSV 导出**：公式字符（=`+`-`@）前置单引号，防 Excel 公式注入
 - **找回密码验证码**默认不落日志（`mall.security.log-mail-codes`）
+- **登录后改密**：必须已绑定邮箱；需当前密码 + 邮箱验证码（与找回密码的码按用途隔离）；
+  改密后其他会话被踢下线，当前会话续期。`PUT /api/user` 不再改密码
 - **关服接口**：拒绝带 `X-Forwarded-For`/`X-Real-IP` 的请求，防反代绕过「仅本机」
 - 敏感词校验统一在 `ProductService.createProduct/updateProduct`（合并后校验，
   防止只改一个字段绕过），评论/评价/聊天仍由 Controller 校验

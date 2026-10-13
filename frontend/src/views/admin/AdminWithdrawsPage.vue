@@ -60,7 +60,10 @@ async function approve(w) {
 }
 
 async function reject(w) {
-  const reason = window.prompt('驳回原因（将退回余额）', '信息有误') || '审核未通过'
+  const input = window.prompt('驳回原因（将退回余额）', '信息有误')
+  // prompt 返回 null = 管理员点了取消：必须放弃，不能落默认理由直接驳回
+  if (input === null) return
+  const reason = input.trim() || '审核未通过'
   actingId.value = w.id
   const d = await adminApi.rejectWithdraw(w.id, reason)
   actingId.value = null
@@ -139,8 +142,11 @@ onMounted(load)
               </template>
             </td>
           </tr>
-          <tr v-if="!filtered.length">
+          <tr v-if="!filtered.length && !loading">
             <td colspan="7" class="muted center">暂无提现记录</td>
+          </tr>
+          <tr v-else-if="loading">
+            <td colspan="7" class="muted center">加载中…</td>
           </tr>
         </tbody>
       </table>

@@ -20,6 +20,7 @@ const replies = ref([])
 const loading = ref(true)
 const showReplyMgr = ref(false)
 const editingReplyId = ref(null)
+const savingReply = ref(false)
 const replyForm = ref({ category: '交易', title: '', content: '' })
 const listEl = ref(null)
 const mediaInput = ref(null)
@@ -177,6 +178,7 @@ function resetReplyForm() {
 }
 
 async function saveReply() {
+  if (savingReply.value) return
   if (!replyForm.value.title.trim() || !replyForm.value.content.trim()) {
     showToast('请填写标题和内容', 'warning')
     return
@@ -186,9 +188,11 @@ async function saveReply() {
     title: replyForm.value.title.trim(),
     content: replyForm.value.content.trim()
   }
+  savingReply.value = true
   const d = editingReplyId.value
     ? await supportApi.updateReply(editingReplyId.value, payload)
     : await supportApi.addReply(payload)
+  savingReply.value = false
   if (d.success) {
     showToast(editingReplyId.value ? '话术已更新' : '话术已添加')
     resetReplyForm()
@@ -206,6 +210,8 @@ async function removeReply(r) {
     showToast('已删除')
     if (editingReplyId.value === r.id) resetReplyForm()
     loadReplies()
+  } else {
+    showToast(d.message || '删除失败', 'error')
   }
 }
 
@@ -347,7 +353,7 @@ onBeforeUnmount(() => {
             </div>
             <textarea v-model="replyForm.content" class="form-input" rows="3" placeholder="回复内容"></textarea>
             <div class="row-actions">
-              <button class="btn btn-primary" @click="saveReply">{{ editingReplyId ? '保存修改' : '保存话术' }}</button>
+              <button class="btn btn-primary" :disabled="savingReply" @click="saveReply">{{ savingReply ? '保存中…' : editingReplyId ? '保存修改' : '保存话术' }}</button>
               <button v-if="editingReplyId" class="btn btn-outline" @click="resetReplyForm">取消编辑</button>
             </div>
           </div>

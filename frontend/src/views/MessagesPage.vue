@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useWindowSize, useEventListener, useIntervalFn } from '@vueuse/core'
 import { chatApi, productApi, uploadApi } from '@/api'
 import { formatTime, formatPrice, imgOf, onImgError } from '@/api/client'
-import { showToast } from '@/composables/ui'
+import { showToast, confirmDialog } from '@/composables/ui'
 import { validateChatMedia } from '@/composables/chatMedia'
 import { useUserStore } from '@/stores/user'
 import ChatMessage from '@/components/ChatMessage.vue'
@@ -49,6 +49,32 @@ function dateLabelOf(m, prev) {
 async function loadRooms() {
   const d = await chatApi.rooms()
   if (d.success) rooms.value = d.rooms || []
+  else showToast(d.message || '会话加载失败', 'error')
+}
+
+const deletingRoom = ref(false)
+/** 删除会话（软删，双方均不再显示） */
+async function removeRoom(room) {
+  if (deletingRoom.value) return
+  const ok = await confirmDialog({
+    title: '删除会话',
+    message: `确定删除与「${room.otherNickname}」的会话吗？删除后聊天记录将不再显示。`,
+    okText: '删除',
+    type: 'warning'
+  })
+  if (!ok) return
+  deletingRoom.value = true
+  const d = await chatApi.deleteRoom(room.roomId)
+  deletingRoom.value = false
+  if (d.success) {
+    showToast('会话已删除')
+    activeRoom.value = null
+    messages.value = []
+    await loadRooms()
+    showListOnMobile.value = true
+  } else {
+    showToast(d.message || '删除失败', 'error')
+  }
 }
 
 async function openRoom(room) {
@@ -413,6 +439,16 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <span v-if="!pendingSeller" class="live-dot">LIVE</span>
+            <button
+              v-if="!pendingSeller && activeRoom"
+              type="button"
+              class="btn btn-ghost btn-sm"
+              title="删除会话"
+              :disabled="deletingRoom"
+              @click="removeRoom(activeRoom)"
+            >
+              <i class="fas fa-trash"></i>
+            </button>
           </header>
 
           <div v-if="goods" class="goods-bar">

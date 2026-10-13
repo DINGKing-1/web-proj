@@ -9,6 +9,7 @@ import com.secondhand.mall.entity.Notification;
 import com.secondhand.mall.entity.Order;
 import com.secondhand.mall.entity.Report;
 import com.secondhand.mall.entity.User;
+import com.secondhand.mall.entity.WalletTransaction;
 import com.secondhand.mall.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,12 +68,16 @@ public class AdminService {
         stats.put("totalOrders", orderRepository.count());
         stats.put("totalSales", orderRepository.countSalesByProductId().stream()
                 .mapToLong(row -> ((Number) row[1]).longValue()).sum());
+        // GMV = 已付款成交口径（不含待付款/取消/退款），金额按实付（扣优惠券）
         BigDecimal gmv = orderRepository.findAll().stream()
-                .filter(o -> !"cancelled".equals(o.getStatus()) && !"refunded".equals(o.getStatus()))
+                .filter(o -> !"cancelled".equals(o.getStatus()) && !"refunded".equals(o.getStatus())
+                        && !"pending_payment".equals(o.getStatus()))
                 .map(o -> {
                     int qty = o.getQuantity() != null && o.getQuantity() > 0 ? o.getQuantity() : 1;
                     BigDecimal price = o.getProductPrice() != null ? o.getProductPrice() : BigDecimal.ZERO;
-                    return price.multiply(BigDecimal.valueOf(qty));
+                    BigDecimal discount = o.getDiscountAmount() != null ? o.getDiscountAmount() : BigDecimal.ZERO;
+                    BigDecimal net = price.multiply(BigDecimal.valueOf(qty)).subtract(discount);
+                    return net.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : net;
                 })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         stats.put("gmv", gmv);
@@ -204,9 +209,11 @@ public class AdminService {
         softDeleteUser(user, "admin");
     }
 
-    /** 软删除用户：踢下线 + 标记 deleted，数据保留可恢复 */
+    /** 软删除用户：踢下线 + 标记 deleted，数据保留可恢复。
+     *  进行中订单一并强制结算（退款/回补库存），避免账号删除后钱货永久挂在平台托管。 */
     @Transactional
     public void softDeleteUser(User user, String deletedBy) {
+        settleActiveOrders(user.getUsername());
         user.setDeleted(true);
         user.setDeletedAt(LocalDateTime.now());
         user.setDeletedBy(deletedBy);
@@ -281,43 +288,71 @@ public class AdminService {
     }
 
     /**
-     * 将用户相关的未完成订单（unshipped/shipped/received）强制结算：
-     * 买家退款、卖家扣回、商品库存恢复，然后订单标记 cancelled（随后会被删除）。
+     * 将用户相关的未完结订单强制结算：
+     * 仅已支付状态（unshipped/shipped/received/after_sale/return_*）退款给买家；
+     * pending_payment 从未扣款只回补库存；completed/cancelled/refunded 跳过防重复结算。
+     * 金额走实付口径（扣优惠券），并退回优惠券、写资金流水。
+     * 每单走 findByIdForUpdate 行锁并复核状态，防与取消/支付/超时任务并发双结算。
      */
     private void settleActiveOrders(String username) {
         List<Order> buyerOrders = orderRepository.findByUsernameOrderByCreatedAtDesc(username);
         List<Order> sellerOrders = orderRepository.findBySellerUsernameOrderByCreatedAtDesc(username);
         Set<Long> seen = new HashSet<>();
-        List<Order> all = new ArrayList<>();
+        List<Long> ids = new ArrayList<>();
         for (Order o : buyerOrders) {
-            if (o.getId() != null && seen.add(o.getId())) all.add(o);
+            if (o.getId() != null && seen.add(o.getId())) ids.add(o.getId());
         }
         for (Order o : sellerOrders) {
-            if (o.getId() != null && seen.add(o.getId())) all.add(o);
+            if (o.getId() != null && seen.add(o.getId())) ids.add(o.getId());
         }
 
-        for (Order order : all) {
+        for (Long id : ids) {
+            // 行锁 + 状态复核：期间订单可能已被取消/支付/退款，必须以锁内状态为准
+            Order order = orderRepository.findByIdForUpdate(id).orElse(null);
+            if (order == null) continue;
             String status = order.getStatus();
-            if ("completed".equals(status) || "cancelled".equals(status)) {
+            // 终态跳过：防二次退款/二次回补库存
+            if ("completed".equals(status) || "cancelled".equals(status) || "refunded".equals(status)) {
                 continue;
             }
-            // 资金托管：买家退款；仅当已打款给卖家时才扣回
             int qty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
+            // 实付 = 单价×数量 - 优惠券抵扣（与 payOrder/settleRefund 同口径）
             BigDecimal price = order.getProductPrice() != null ? order.getProductPrice() : BigDecimal.ZERO;
-            BigDecimal refund = price.multiply(BigDecimal.valueOf(qty));
+            BigDecimal discount = order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO;
+            BigDecimal rawRefund = price.multiply(BigDecimal.valueOf(qty)).subtract(discount);
+            final BigDecimal refund = rawRefund.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : rawRefund;
+            boolean paid = isPaidStatus(status);
 
-            userRepository.findByUsername(order.getUsername()).ifPresent(buyer -> {
-                buyer.setBalance(buyer.getBalance().add(refund));
-                userRepository.save(buyer);
-            });
-            if (Boolean.TRUE.equals(order.getSellerPaid())
-                    && order.getSellerUsername() != null && !order.getSellerUsername().isEmpty()) {
-                userRepository.findByUsername(order.getSellerUsername()).ifPresent(seller -> {
-                    seller.setBalance(seller.getBalance().subtract(refund));
-                    userRepository.save(seller);
+            if (paid) {
+                userRepository.findByUsernameForUpdate(order.getUsername()).ifPresent(buyer -> {
+                    buyer.setBalance(buyer.getBalance().add(refund));
+                    userRepository.save(buyer);
                 });
+                walletTransactionRepository.save(new WalletTransaction(
+                        order.getUsername(), "refund", "注销结算退款 · " + order.getProductName(), refund));
+                // 全额退款，把用掉的券退回去
+                if (couponService != null) {
+                    try {
+                        couponService.releaseByOrder(order.getId());
+                    } catch (Exception ignored) {
+                        // 券服务异常不阻断注销结算
+                    }
+                }
+                if (Boolean.TRUE.equals(order.getSellerPaid())
+                        && order.getSellerUsername() != null && !order.getSellerUsername().isEmpty()) {
+                    userRepository.findByUsernameForUpdate(order.getSellerUsername()).ifPresent(seller -> {
+                        seller.setBalance(seller.getBalance().subtract(refund));
+                        userRepository.save(seller);
+                    });
+                    walletTransactionRepository.save(new WalletTransaction(
+                            order.getSellerUsername(), "refund",
+                            "注销结算扣回 · " + order.getProductName(), refund.negate()));
+                }
             }
-            if (order.getProductId() != null) {
+
+            // 仅货在卖方侧（未发货/未付款/退货在途）才回补库存；
+            // 已发货后货在买家或途上，回补会造出幽灵库存
+            if (order.getProductId() != null && stockHeldBySeller(status)) {
                 productRepository.findById(order.getProductId()).ifPresent(product -> {
                     int restored = product.getQuantity() != null ? product.getQuantity() : 0;
                     product.setQuantity(restored + qty);
@@ -330,6 +365,21 @@ public class AdminService {
             order.setStatus("cancelled");
             orderRepository.save(order);
         }
+    }
+
+    /** 货权是否在卖方侧（与 OrderService 同口径）：未出库或退货已在途 */
+    private static boolean stockHeldBySeller(String status) {
+        return "pending_payment".equals(status) || "unshipped".equals(status) || "return_sent".equals(status);
+    }
+
+    /** 可选注入：用于注销结算时退回优惠券 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CouponService couponService;
+
+    private static boolean isPaidStatus(String status) {
+        return "unshipped".equals(status) || "shipped".equals(status) || "received".equals(status)
+                || "after_sale".equals(status) || "return_shipping".equals(status)
+                || "return_sent".equals(status);
     }
 }
 

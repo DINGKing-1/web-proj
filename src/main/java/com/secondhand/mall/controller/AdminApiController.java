@@ -55,11 +55,19 @@ public class AdminApiController extends BaseApiController {
             LoginRequest loginReq = new LoginRequest();
             loginReq.setUsername(request.get("username"));
             loginReq.setPassword(request.get("password"));
-            User user = userService.login(loginReq, session.getId());
-
-            if (!"admin".equals(user.getRole())) {
+            // 先验角色再走 login：login 会写会话指纹，普通用户拿自己口令打这个接口
+            // 若先 login 就会把受害者已有会话踢下线（失败路径不回滚）
+            User peek;
+            try {
+                peek = userService.findByUsername(loginReq.getUsername());
+            } catch (RuntimeException ex) {
+                // 与 login 同款统一文案，防用户枚举
+                return fail("用户名或密码错误").toMap();
+            }
+            if (!"admin".equals(peek.getRole())) {
                 return fail("无管理员权限").toMap();
             }
+            User user = userService.login(loginReq, session.getId());
 
             // 防会话固定：登录成功后更换会?ID
             String newSessionId = httpRequest.changeSessionId();

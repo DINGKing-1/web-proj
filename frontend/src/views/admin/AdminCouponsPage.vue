@@ -12,6 +12,7 @@ const store = useUserStore()
 const items = ref([])
 const loading = ref(true)
 const editing = ref(null) // null | 'new' | id
+const saving = ref(false)
 const form = ref({})
 
 const EMPTY = () => ({
@@ -67,6 +68,7 @@ function toIso(v) {
 }
 
 async function save() {
+  if (saving.value) return
   if (!form.value.code?.trim() && editing.value === 'new') {
     showToast('请填写券码', 'warning')
     return
@@ -81,10 +83,12 @@ async function save() {
     startAt: toIso(form.value.startAt),
     endAt: toIso(form.value.endAt)
   }
+  saving.value = true
   const d =
     editing.value === 'new'
       ? await couponApi.create(payload)
       : await couponApi.update(editing.value, payload)
+  saving.value = false
   if (d.success) {
     showToast('已保存')
     editing.value = null
@@ -181,7 +185,7 @@ onMounted(load)
       </label>
       <div class="actions">
         <button type="button" class="btn btn-outline" @click="editing = null">取消</button>
-        <button type="button" class="btn btn-primary" @click="save">保存</button>
+        <button type="button" class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
       </div>
     </div>
 

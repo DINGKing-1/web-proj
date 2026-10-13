@@ -271,8 +271,8 @@ async function submitRegister() {
         <button v-if="!isReset" type="button" class="link-btn" @click="isReset = true">忘记密码？</button>
       </form>
 
-      <!-- 注册 -->
-      <form v-else class="auth-form" @submit.prevent="submitRegister">
+      <!-- 注册（独立 v-if：避免忘记密码时与注册表单同时出现） -->
+      <form v-if="isRegister" class="auth-form" @submit.prevent="submitRegister">
         <div class="form-group">
           <label for="reg-username">用户名</label>
           <input

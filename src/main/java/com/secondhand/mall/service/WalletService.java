@@ -52,11 +52,9 @@ public class WalletService {
             row.put("type", tx.getType());
             row.put("title", tx.getTitle());
             String amt = tx.getAmount() != null ? tx.getAmount().toPlainString() : "0";
-            // 入账加号、出账减号，便于前端统一按符号着色
-            String type = tx.getType() == null ? "" : tx.getType();
-            boolean inbound = "recharge".equals(type) || "sell".equals(type)
-                    || "refund".equals(type) || "coupon".equals(type);
-            row.put("amount", (inbound ? "+" : "") + amt);
+            // 金额落库已带符号（出账为负）：正数补 +、负数保留 -，前端按符号着色
+            String signed = amt.startsWith("-") || amt.startsWith("+") ? amt : "+" + amt;
+            row.put("amount", signed);
             row.put("createdAt", String.valueOf(tx.getCreatedAt()));
             row.put("status", tx.getStatus());
             rows.add(row);
