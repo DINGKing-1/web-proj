@@ -126,6 +126,57 @@ public class LogisticsService {
         };
     }
 
+    /**
+     * 退货运单校验（教学演示版物流接口）。
+     * 真实环境对接快递100/菜鸟运单查询；此处校验单号格式、快递公司与揽收记录。
+     * 无效/无揽收记录的单号不得提交售后，避免假运单触发后续结算。
+     */
+    public Map<String, Object> validateReturnTracking(String trackingNumber) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String no = trackingNumber == null ? "" : trackingNumber.trim();
+        result.put("trackingNumber", no);
+        if (no.isEmpty()) {
+            result.put("valid", false);
+            result.put("hasPickup", false);
+            result.put("reason", "请填写退货运单号");
+            return result;
+        }
+        if (no.length() < 8 || no.length() > 30) {
+            result.put("valid", false);
+            result.put("hasPickup", false);
+            result.put("reason", "运单号格式不正确（长度 8-30 位）");
+            return result;
+        }
+        if (!no.matches("[A-Za-z0-9-]+")) {
+            result.put("valid", false);
+            result.put("hasPickup", false);
+            result.put("reason", "运单号仅允许字母、数字和连字符");
+            return result;
+        }
+        String upper = no.toUpperCase();
+        String company = guessCompany(upper);
+        if ("优品汇合作快递".equals(company)) {
+            result.put("valid", false);
+            result.put("hasPickup", false);
+            result.put("reason", "无法识别的快递公司，请填写主流快递单号");
+            return result;
+        }
+        // 演示版揽收校验：承运商前缀 + 至少 8 位数字才视为已揽收
+        String body = upper.replaceAll("^[A-Z]+", "").replace("-", "");
+        if (!body.matches("\\d{8,}")) {
+            result.put("valid", false);
+            result.put("hasPickup", false);
+            result.put("company", company);
+            result.put("reason", "运单号无有效揽收记录，请核对后重填");
+            return result;
+        }
+        result.put("valid", true);
+        result.put("hasPickup", true);
+        result.put("company", company);
+        result.put("reason", "");
+        return result;
+    }
+
     /** 由单号确定性生成演示数据，同一单号结果稳定 */
     private String guessCompany(String tracking) {
         if (tracking.startsWith("SF")) return "顺丰速运";

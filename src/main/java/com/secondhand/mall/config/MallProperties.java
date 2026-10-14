@@ -30,8 +30,8 @@ public class MallProperties {
     }
 
     public static class Wallet {
-        /** 模拟充值开关：演示环境 true，生产必须 false */
-        private boolean mockRechargeEnabled = true;
+        /** 模拟充值开关：默认关闭；仅演示/开发显式打开。生产必须 false */
+        private boolean mockRechargeEnabled = false;
         private BigDecimal mockRechargeMaxSingle = new BigDecimal("50000");
         private BigDecimal mockRechargeMaxCumulative = new BigDecimal("200000");
 
@@ -61,7 +61,8 @@ public class MallProperties {
     }
 
     public static class User {
-        private BigDecimal initialBalance = new BigDecimal("10000.00");
+        /** 新用户赠金：默认 0；活动期在配置里手动开启 */
+        private BigDecimal initialBalance = BigDecimal.ZERO;
 
         public BigDecimal getInitialBalance() {
             return initialBalance;

@@ -64,6 +64,21 @@ public class CouponController extends BaseApiController {
         }
     }
 
+    /**
+     * 按订单实付总额查可用优惠券（与核销同口径）。
+     * 前端只展示本接口结果，禁止自行计算门槛。
+     */
+    @GetMapping("/coupons/usable")
+    public Map<String, Object> usable(@RequestParam("amount") java.math.BigDecimal amount,
+                                      HttpSession session) {
+        try {
+            List<Map<String, Object>> list = couponService.listUsable(me(session), amount);
+            return ok("获取成功").put("coupons", list).put("total", list.size()).toMap();
+        } catch (RuntimeException e) {
+            return fail(e.getMessage()).toMap();
+        }
+    }
+
     @PostMapping("/coupons/{id}/claim")
     public Map<String, Object> claim(@PathVariable Long id, HttpSession session) {
         try {
@@ -104,10 +119,8 @@ public class CouponController extends BaseApiController {
             if (!body.getEndAt().isAfter(body.getStartAt())) {
                 return fail("结束时间必须晚于开始时").toMap();
             }
-            body.setId(null);
-            body.setIssuedCount(0);
-            Coupon saved = couponRepository.save(body);
-            return ok("已创").put("coupon", saved).toMap();
+            Coupon saved = couponService.createCoupon(body);
+            return ok("已创建").put("coupon", saved).toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }

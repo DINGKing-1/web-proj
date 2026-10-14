@@ -73,8 +73,14 @@ const grossCents = computed(() =>
     0
   )
 )
+/** 优惠券核销到行金额最高的一单；门槛与后端 consume 同口径 = 该单实付总额 */
+const couponBaseCents = computed(() =>
+  checkoutItems.value.reduce((m, it) => Math.max(m, itemTotalCents(it)), 0)
+)
 const discountCents = computed(() =>
-  selectedCoupon.value ? Math.min(toCents(selectedCoupon.value.discountAmount || 0), grossCents.value) : 0
+  selectedCoupon.value
+    ? Math.min(toCents(selectedCoupon.value.discountAmount || 0), couponBaseCents.value)
+    : 0
 )
 const totalCents = computed(() => Math.max(0, grossCents.value - discountCents.value))
 const total = computed(() => formatCents(totalCents.value))
@@ -256,19 +262,17 @@ async function submitOrders() {
   const orderIds = d.orderIds || []
   let paidCount = 0
   let failedMsg = ''
-  // 优惠券只能核销到一单：取金额最高的一单
+  // 优惠券只能核销到一单：取行金额（单价×数量）最高的一单，与门槛口径一致
   let couponOrderId = null
   if (selectedCoupon.value?.userCouponId && orderIds.length) {
     couponOrderId = orderIds[0]
     if (orderIds.length > 1) {
-      // 估算各单金额：用创建结果里没有金额，按商品序对齐取最贵的 productId 对应 order
-      // 简化：批量创建按 items 顺序返回 orderIds，取单价最高那件的下标
       let bestIdx = 0
-      let bestPrice = -1
+      let bestLine = -1
       checkoutItems.value.forEach((it, i) => {
-        const p = toCents(it.product?.secondHandPrice || 0)
-        if (p > bestPrice) {
-          bestPrice = p
+        const p = itemTotalCents(it)
+        if (p > bestLine) {
+          bestLine = p
           bestIdx = i
         }
       })
@@ -463,7 +467,7 @@ onMounted(load)
 
       <PayCouponModal
         :show="showCouponModal"
-        :gross="grossCents / 100"
+        :gross="couponBaseCents / 100"
         @close="showCouponModal = false"
         @confirm="onCouponConfirm"
       />

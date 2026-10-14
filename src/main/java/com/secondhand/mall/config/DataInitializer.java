@@ -76,11 +76,13 @@ public class DataInitializer implements CommandLineRunner {
                 admin.setRole("admin");
                 admin.setBalance(new BigDecimal("999999.00"));
                 admin.setEmail("admin@secondhand-mall.com");
+                // 首次登录强制改密；禁止日志输出口令
+                admin.setMustChangePassword(true);
                 userRepository.save(admin);
                 if (generated) {
-                    log.warn("✓ 已创建管理员 admin，随机口令为: {} （请立即登录修改，此口令不会再次打印）", raw);
+                    log.warn("✓ 已创建管理员 admin（随机口令已生成，未写入日志；请通过安全渠道交付，首次登录强制修改）");
                 } else {
-                    log.info("✓ 默认管理员已创建（口令来自配置项 mall.security.admin-init-password / MALL_ADMIN_PASSWORD）");
+                    log.info("✓ 默认管理员已创建（口令来自配置项 mall.security.admin-init-password / MALL_ADMIN_PASSWORD，首次登录强制修改）");
                 }
             }
         );

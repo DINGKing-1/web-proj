@@ -35,6 +35,28 @@ public class CouponService {
     // ========== 领取 ==========
 
     /** 可领取列表：启用中、在有效期内、没领满、还有余量 */
+    /** 创建优惠券：服务层重复校验（与库层唯一索引双保险） */
+    @Transactional
+    public Coupon createCoupon(Coupon coupon) {
+        if (coupon == null) {
+            throw new RuntimeException("优惠券不能为空");
+        }
+        String code = coupon.getCode() == null ? "" : coupon.getCode().trim();
+        if (code.isEmpty()) {
+            throw new RuntimeException("优惠券编码不能为空");
+        }
+        coupon.setCode(code);
+        // 库层 uk_coupons_code 唯一 + 服务层 existsByCode 双保险
+        if (couponRepository.existsByCode(code)) {
+            throw new RuntimeException("优惠券编码已存在：" + code);
+        }
+        coupon.setId(null);
+        if (coupon.getIssuedCount() == null) {
+            coupon.setIssuedCount(0);
+        }
+        return couponRepository.save(coupon);
+    }
+
     public List<Coupon> listClaimable(String username) {
         LocalDateTime now = LocalDateTime.now();
         List<Coupon> result = new ArrayList<>();
@@ -114,16 +136,50 @@ public class CouponService {
         return rows;
     }
 
+    // ========== 可用券（与核销同一门槛口径） ==========
+
+    /**
+     * 按订单实付总额（不含运费）返回当前可用券。
+     * 门槛/有效期/状态判断与 {@link #consume} 完全一致，前端只展示本接口结果，禁止自行算门槛。
+     */
+    @Transactional
+    public List<Map<String, Object>> listUsable(String username, BigDecimal orderAmount) {
+        if (orderAmount == null || orderAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("订单金额异常，无法查询可用优惠券");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> row : listMine(username)) {
+            if (!"unused".equals(row.get("status"))) continue;
+            Object minObj = row.get("minAmount");
+            BigDecimal min = minObj instanceof BigDecimal bd ? bd : BigDecimal.ZERO;
+            Object discObj = row.get("discountAmount");
+            BigDecimal discount = discObj instanceof BigDecimal bd ? bd : null;
+            if (discount == null || discount.compareTo(BigDecimal.ZERO) <= 0) continue;
+            if (orderAmount.compareTo(min) < 0) continue;
+            // 与 consume 同口径：抵扣不得超过本单实付
+            if (discount.compareTo(orderAmount) > 0) {
+                row.put("discountAmount", orderAmount);
+            }
+            rows.add(row);
+        }
+        return rows;
+    }
+
     // ========== 核销 / 退回 ==========
 
     /**
      * 支付时核销，返回抵扣金额（可能为 0：未传券时）。
-     * 校验：归属、未用、有效期、门槛、金额不超过订单应付。
+     * 校验：归属、未用、有效期、门槛（订单实付总额）、金额不超过订单应付。
+     * 门槛不满足直接抛出，由支付事务回滚。
      */
     @Transactional
     public BigDecimal consume(String username, Long userCouponId, Long orderId, BigDecimal orderGross) {
         if (userCouponId == null) {
             return BigDecimal.ZERO;
+        }
+        if (orderGross == null || orderGross.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("订单金额异常，无法使用优惠券");
         }
         // 行锁 + 二次状态复核：防两笔订单并发使用同一张券
         UserCoupon uc = userCouponRepository.findByIdAndUsernameForUpdate(userCouponId, username)
@@ -141,6 +197,7 @@ public class CouponService {
                 || (coupon.getEndAt() != null && coupon.getEndAt().isBefore(now))) {
             throw new RuntimeException("优惠券不在有效期内");
         }
+        // 唯一门槛：订单实付总额（不含运费）
         BigDecimal min = coupon.getMinAmount() != null ? coupon.getMinAmount() : BigDecimal.ZERO;
         if (orderGross.compareTo(min) < 0) {
             throw new RuntimeException("订单满 ¥" + min.toPlainString() + " 才能使用该优惠券");

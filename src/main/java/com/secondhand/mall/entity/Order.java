@@ -68,6 +68,17 @@ public class Order {
     @Column(nullable = false)
     private Boolean sellerPaid = false;
 
+    /** 打款异常：卖家不存在/已注销时为 true，sellerPaid 保持 false，进人工队列 */
+    @Column(nullable = false)
+    private Boolean payException = false;
+
+    @Column(length = 255)
+    private String payExceptionReason;
+
+    /** 管理员强制取消留痕：操作人+原因 */
+    @Column(length = 255)
+    private String adminCancelReason;
+
     @Column(length = 100)
     private String trackingNumber;
 
@@ -113,6 +124,7 @@ public class Order {
         if (status == null) status = "unshipped";
         if (quantity == null) quantity = 1;
         if (sellerPaid == null) sellerPaid = false;
+        if (payException == null) payException = false;
     }
 
     public Order() {}
@@ -173,6 +185,15 @@ public class Order {
 
     public Boolean getSellerPaid() { return sellerPaid; }
     public void setSellerPaid(Boolean sellerPaid) { this.sellerPaid = sellerPaid; }
+
+    public Boolean getPayException() { return payException; }
+    public void setPayException(Boolean payException) { this.payException = payException; }
+
+    public String getPayExceptionReason() { return payExceptionReason; }
+    public void setPayExceptionReason(String payExceptionReason) { this.payExceptionReason = payExceptionReason; }
+
+    public String getAdminCancelReason() { return adminCancelReason; }
+    public void setAdminCancelReason(String adminCancelReason) { this.adminCancelReason = adminCancelReason; }
 
     public String getTrackingNumber() { return trackingNumber; }
     public void setTrackingNumber(String trackingNumber) { this.trackingNumber = trackingNumber; }

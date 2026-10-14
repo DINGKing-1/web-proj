@@ -12,6 +12,8 @@ import com.secondhand.mall.repository.CartItemRepository;
 import com.secondhand.mall.repository.OrderRepository;
 import com.secondhand.mall.repository.ProductRepository;
 import com.secondhand.mall.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +27,8 @@ import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class OrderService {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 
     private static final Map<String, List<String>> VALID_TRANSITIONS = Map.of(
         OrderStatus.PENDING_PAYMENT, List.of(OrderStatus.UNSHIPPED, OrderStatus.CANCELLED),
@@ -47,16 +51,24 @@ public class OrderService {
     private final CartItemRepository cartItemRepository;
     private final WalletService walletService;
     private final CouponService couponService;
+    private final LogisticsService logisticsService;
+    private final StockService stockService;
+    private final NotificationService notificationService;
 
     public OrderService(OrderRepository orderRepository, ProductRepository productRepository,
                         UserRepository userRepository, CartItemRepository cartItemRepository,
-                        WalletService walletService, CouponService couponService) {
+                        WalletService walletService, CouponService couponService,
+                        LogisticsService logisticsService, StockService stockService,
+                        NotificationService notificationService) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.cartItemRepository = cartItemRepository;
         this.walletService = walletService;
         this.couponService = couponService;
+        this.logisticsService = logisticsService;
+        this.stockService = stockService;
+        this.notificationService = notificationService;
     }
 
     /** 实付金额 = 单价×数量 - 优惠券抵扣；支付、退款、结算统一走这里 */
@@ -65,7 +77,9 @@ public class OrderService {
         BigDecimal gross = order.getProductPrice().multiply(BigDecimal.valueOf(qty));
         BigDecimal discount = order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO;
         BigDecimal net = gross.subtract(discount);
-        return net.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : net;
+        if (net.compareTo(BigDecimal.ZERO) < 0) net = BigDecimal.ZERO;
+        // 统一 2 位小数 HALF_UP，防对账漂移
+        return net.setScale(2, java.math.RoundingMode.HALF_UP);
     }
 
     /** 单条下单请求（批量结算的元素） */
@@ -206,14 +220,8 @@ public class OrderService {
             dealPrice = unitPrice;
         }
 
-        // 库存递减（下单即占库存，防止待付款期间被抢走）
-        if (qty <= buyQty) {
-            product.setQuantity(0);
-            product.setStatus(ProductStatus.SOLD);
-        } else {
-            product.setQuantity(qty - buyQty);
-        }
-        productRepository.save(product);
+        // 库存递减（下单即占库存，防止待付款期间被抢走）；StockService 行锁 + 版本号
+        stockService.deduct(productId, buyQty);
 
         // 创建待付款订单：扣款发生在 payOrder，超时由定时任务关单并回补库存
         Order order = new Order();
@@ -322,8 +330,17 @@ public class OrderService {
         int refundQty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
         BigDecimal refund = paidTotal(order);
 
-        // 与下单一致的加锁顺序：商品 → 买家 → 卖家
+        // 全局加锁顺序：商品 → 卖家 → 买家（与 settleRefund 一致，防死锁）
         Product product = productRepository.findByIdForUpdate(order.getProductId()).orElse(null);
+
+        boolean clawback = OrderStatus.UNSHIPPED.equals(st)
+                && Boolean.TRUE.equals(order.getSellerPaid())
+                && order.getSellerUsername() != null && !order.getSellerUsername().isEmpty();
+        User seller = null;
+        if (clawback) {
+            seller = userRepository.findByUsernameForUpdate(order.getSellerUsername())
+                    .orElseThrow(() -> new RuntimeException("卖家不存在"));
+        }
 
         // 仅已支付订单才退款；待付款订单未扣款，直接关单即可
         if (OrderStatus.UNSHIPPED.equals(st)) {
@@ -335,24 +352,16 @@ public class OrderService {
             couponService.releaseByOrder(order.getId());
 
             // 资金托管下卖家尚未收款，无需扣回；兼容旧数据（已打款则扣回）
-            if (Boolean.TRUE.equals(order.getSellerPaid())
-                    && order.getSellerUsername() != null && !order.getSellerUsername().isEmpty()) {
-                User seller = userRepository.findByUsernameForUpdate(order.getSellerUsername())
-                        .orElseThrow(() -> new RuntimeException("卖家不存在"));
+            if (seller != null) {
                 seller.setBalance(seller.getBalance().subtract(refund));
                 userRepository.save(seller);
                 walletService.add(order.getSellerUsername(), "refund", "取消扣回 · " + order.getProductName(), refund.negate());
             }
         }
 
-        // 按订单购买数量恢复商品库存
+        // 按订单购买数量恢复商品库存（StockService 行锁 + 版本号）
         if (product != null) {
-            int restored = product.getQuantity() != null ? product.getQuantity() : 0;
-            product.setQuantity(restored + refundQty);
-            if (ProductStatus.SOLD.equals(product.getStatus())) {
-                product.setStatus(ProductStatus.ACTIVE);
-            }
-            productRepository.save(product);
+            stockService.restore(product.getId(), refundQty);
         }
 
         order.setStatus(OrderStatus.CANCELLED);
@@ -403,6 +412,8 @@ public class OrderService {
 
     /**
      * 买家填写退货运单号并寄回。
+     * 运单必须通过物流接口校验（格式 + 快递公司 + 揽收记录），无效运单禁止提交。
+     * 此阶段不操作库存、不退款；退款与回补仅在卖家确认收货时执行。
      */
     @Transactional
     public Order submitReturnTracking(Long id, String currentUsername, String trackingNumber) {
@@ -418,9 +429,18 @@ public class OrderService {
             throw new RuntimeException("请填写退货运单号");
         }
         String no = trackingNumber.trim();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> check = logisticsService.validateReturnTracking(no);
+        if (!Boolean.TRUE.equals(check.get("valid")) || !Boolean.TRUE.equals(check.get("hasPickup"))) {
+            Object reason = check.get("reason");
+            throw new RuntimeException(reason == null || String.valueOf(reason).isBlank()
+                    ? "无效退货运单号，请核对后重填"
+                    : String.valueOf(reason));
+        }
         if (no.length() > 100) {
             throw new RuntimeException("运单号过长");
         }
+        // 仅记录运单并进入待卖家确认；库存回补与退款留到 confirmReturnReceived
         order.setReturnTrackingNumber(no);
         order.setReturnSentAt(LocalDateTime.now());
         order.setStatus(OrderStatus.RETURN_SENT);
@@ -429,6 +449,7 @@ public class OrderService {
 
     /**
      * 卖家确认收到退货 → 退款给买家、恢复库存，订单进入已退款。
+     * 这是唯一触发退款+回补库存的正常出口（假运单/超时不再自动退款）。
      */
     @Transactional
     public Order confirmReturnReceived(Long id, String sellerUsername) {
@@ -443,14 +464,6 @@ public class OrderService {
         settleRefund(order);
         order.setStatus(OrderStatus.REFUNDED);
         return orderRepository.save(order);
-    }
-
-    /** 超时任务用：卖家超时未确认收货 → 退款并标记已退款（调用方须已持有订单行锁） */
-    @Transactional
-    public void settleRefundAndMarkRefunded(Order order) {
-        settleRefund(order);
-        order.setStatus(OrderStatus.REFUNDED);
-        orderRepository.save(order);
     }
 
     /**
@@ -508,9 +521,13 @@ public class OrderService {
     /**
      * 管理员强制取消并退款（平台仲裁，任意未完结状态）。
      */
-    @Transactional
+      /**
+     * 管理员强制取消并退款。
+     * 仅待付款/待发货允许；已发货/已收货/售后中禁止直接退全款（须走售后退货流程），防白拿资损。
+     */
     @Audited(action = "强制取消订单", targetType = "order")
-    public Order adminForceCancel(Long id) {
+    @Transactional
+    public Order adminForceCancel(Long id, String operator, String reason) {
         Order order = orderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new RuntimeException("订单不存在"));
         String st = order.getStatus();
@@ -518,8 +535,18 @@ public class OrderService {
                 || OrderStatus.REFUNDED.equals(st)) {
             throw new RuntimeException("订单已完结，无法强制取消");
         }
+        // B-07：已履约订单禁止强退全款
+        if (OrderStatus.SHIPPED.equals(st) || OrderStatus.RECEIVED.equals(st)
+                || OrderStatus.AFTER_SALE.equals(st) || OrderStatus.RETURN_SHIPPING.equals(st)
+                || OrderStatus.RETURN_SENT.equals(st)) {
+            throw new RuntimeException("已发货/已收货订单禁止直接强制退款，请走售后退货流程后再处理");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new RuntimeException("请填写强制取消原因");
+        }
         settleRefund(order);
         order.setStatus(OrderStatus.CANCELLED);
+        order.setAdminCancelReason("操作人:" + operator + " 原因:" + reason.trim());
         return orderRepository.save(order);
     }
 
@@ -537,11 +564,31 @@ public class OrderService {
     }
 
     /** 退款 + 恢复库存；仅已支付订单才退钱，待付款只回补库存 */
+    /**
+     * 退款/回补结算（取消、售后、管理员强退共用）。
+     * 全局加锁顺序：商品 → 卖家 → 买家，与 cancelOrder/createOrder 一致，防反向加锁死锁。
+     */
     private void settleRefund(Order order) {
         int refundQty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
         boolean paid = isPaidStatus(order.getStatus());
         BigDecimal refund = paidTotal(order);
 
+        // 1) 先锁商品（货权在卖方侧才回补；锁顺序起点）
+        boolean restoreStock = stockHeldBySeller(order.getStatus());
+        if (restoreStock && order.getProductId() != null) {
+            productRepository.findByIdForUpdate(order.getProductId());
+        }
+
+        // 2) 再锁卖家（需扣回时）
+        boolean clawback = paid && Boolean.TRUE.equals(order.getSellerPaid())
+                && order.getSellerUsername() != null && !order.getSellerUsername().isEmpty();
+        User seller = null;
+        if (clawback) {
+            seller = userRepository.findByUsernameForUpdate(order.getSellerUsername())
+                    .orElseThrow(() -> new RuntimeException("卖家不存在"));
+        }
+
+        // 3) 最后锁买家并入账
         if (paid) {
             User buyer = userRepository.findByUsernameForUpdate(order.getUsername())
                     .orElseThrow(() -> new RuntimeException("用户不存在"));
@@ -550,32 +597,18 @@ public class OrderService {
             walletService.add(order.getUsername(), "refund",
                     "售后退款 · " + order.getProductName(), refund);
 
-            // 仅当已打款给卖家时才扣回（兼容旧数据）
-            if (Boolean.TRUE.equals(order.getSellerPaid())
-                    && order.getSellerUsername() != null && !order.getSellerUsername().isEmpty()) {
-                User seller = userRepository.findByUsernameForUpdate(order.getSellerUsername())
-                        .orElseThrow(() -> new RuntimeException("卖家不存在"));
+            if (seller != null) {
                 seller.setBalance(seller.getBalance().subtract(refund));
                 userRepository.save(seller);
                 walletService.add(order.getSellerUsername(), "refund",
                         "售后扣回 · " + order.getProductName(), refund.negate());
             }
-            // 全额退款，把用掉的券退回去
             couponService.releaseByOrder(order.getId());
         }
 
-        // 仅货在卖方侧才回补库存：未发货可回补；已发货/售后中货在买家或途上，
-        // 回补会造出卖家手里没有的幽灵库存，导致后续成交无法履约
-        if (stockHeldBySeller(order.getStatus())) {
-            Product product = productRepository.findByIdForUpdate(order.getProductId()).orElse(null);
-            if (product != null) {
-                int restored = product.getQuantity() != null ? product.getQuantity() : 0;
-                product.setQuantity(restored + refundQty);
-                if (ProductStatus.SOLD.equals(product.getStatus())) {
-                    product.setStatus(ProductStatus.ACTIVE);
-                }
-                productRepository.save(product);
-            }
+        // 仅货在卖方侧才回补库存：已发货/售后中货在买家或途上，回补会造出幽灵库存
+        if (restoreStock) {
+            stockService.restore(order.getProductId(), refundQty);
         }
     }
 
@@ -609,23 +642,50 @@ public class OrderService {
     }
 
     /** 资金托管：订单完成时把货款打给卖家（幂等） */
+    /**
+     * 托管货款打给卖家。卖家不存在/已注销时绝不能标 sellerPaid，
+     * 记「打款异常」转人工队列，保证对账一致。
+     */
+    @Transactional
     public void releaseToSeller(Order order) {
         if (Boolean.TRUE.equals(order.getSellerPaid())) {
             return;
         }
-        if (order.getSellerUsername() == null || order.getSellerUsername().isEmpty()) {
-            order.setSellerPaid(true);
+        String sellerName = order.getSellerUsername();
+        if (sellerName == null || sellerName.isBlank()) {
+            markPayException(order, "订单缺少卖家账号，货款暂扣待人工处理");
             return;
         }
-        int qty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
         BigDecimal amount = paidTotal(order);
-        userRepository.findByUsernameForUpdate(order.getSellerUsername()).ifPresent(seller -> {
-            seller.setBalance(seller.getBalance().add(amount));
-            userRepository.save(seller);
-            walletService.add(order.getSellerUsername(), "sell",
-                    "售出 · " + order.getProductName(), amount);
-        });
+
+        // 同一事务内：锁卖家 → 加余额 → 标 sellerPaid
+        User seller = userRepository.findByUsernameForUpdate(sellerName).orElse(null);
+        if (seller == null || Boolean.TRUE.equals(seller.getDeleted())) {
+            markPayException(order, "卖家账号不存在或已注销，货款暂扣待人工处理");
+            return;
+        }
+        seller.setBalance(seller.getBalance().add(amount));
+        userRepository.save(seller);
+        walletService.add(sellerName, "sell", "售出 · " + order.getProductName(), amount);
         order.setSellerPaid(true);
+        orderRepository.save(order);
+    }
+
+    /** 打款异常：标记并告警，不改 sellerPaid，由人工队列处理 */
+    private void markPayException(Order order, String reason) {
+        order.setPayException(true);
+        order.setPayExceptionReason(reason);
+        order.setSellerPaid(false);
+        orderRepository.save(order);
+        log.warn("[PayException] 订单 {} 打款异常: {}", order.getId(), reason);
+        // 通知平台管理员人工介入
+        try {
+            notificationService.push("admin", "order", "订单打款异常",
+                    "订单「" + order.getProductName() + "」" + reason + "，请人工处理",
+                    "order", String.valueOf(order.getId()));
+        } catch (Exception ignored) {
+            // 通知失败不阻断结算，日志已记录
+        }
     }
 
     public List<Order> getBuyerOrders(String username, String status) {

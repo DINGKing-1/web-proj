@@ -50,6 +50,9 @@ class OrderServiceTest {
     private OrderAfterSaleTimeoutService afterSaleTimeoutService;
 
     @Autowired
+    private OrderAutoCompleteService autoCompleteService;
+
+    @Autowired
     private CouponService couponService;
 
     @Autowired
@@ -297,7 +300,7 @@ class OrderServiceTest {
                 "Test Product", "electronics", "test.jpg",
                 "Receiver", "13800000001", "Test Address", "balance", 1);
 
-        orderService.adminForceCancel(order.getId());
+        orderService.adminForceCancel(order.getId(), "admin", "测试强退未支付订单");
 
         User buyerAfter = userRepository.findByUsername("buyer1").orElseThrow();
         assertEquals(0, new BigDecimal("10000.00").compareTo(buyerAfter.getBalance()),
@@ -564,7 +567,7 @@ class OrderServiceTest {
         orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
         orderService.applyAfterSale(order.getId(), "buyer1", "想白嫖");
         orderService.approveAfterSale(order.getId(), "seller1");
-        orderService.submitReturnTracking(order.getId(), "buyer1", "FAKE123");
+        orderService.submitReturnTracking(order.getId(), "buyer1", "SF1234567890");
 
         // 售后已寄回：直改 cancelled 必须被拒绝
         assertThrows(RuntimeException.class,
@@ -707,5 +710,158 @@ class OrderServiceTest {
         User buyer = userRepository.findByUsername("buyer1").orElseThrow();
         assertEquals(0, new BigDecimal("10000.00").compareTo(buyer.getBalance()),
                 "实付应为 0");
+    }
+
+    /** B-02：假运单/无效运单禁止提交售后 */
+    @Test
+    void testSubmitReturnTracking_RejectsInvalidTracking() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+        orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+        orderService.applyAfterSale(order.getId(), "buyer1", "质量问题");
+        orderService.approveAfterSale(order.getId(), "seller1");
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> orderService.submitReturnTracking(order.getId(), "buyer1", "FAKE123"),
+                "假运单号必须被拒绝");
+        assertTrue(ex.getMessage().contains("运单") || ex.getMessage().contains("快递"),
+                "应提示运单无效：" + ex.getMessage());
+
+        Order still = orderRepository.findById(order.getId()).orElseThrow();
+        assertEquals("return_shipping", still.getStatus(), "无效运单不得进入已寄回");
+        assertNull(still.getReturnTrackingNumber());
+    }
+
+    /** B-02：只有卖家确认收货才退款+回补库存；超时不再自动退款 */
+    @Test
+    void testReturnSent_NoAutoRefund_UntilSellerConfirms() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+        orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+        orderService.applyAfterSale(order.getId(), "buyer1", "不想要了");
+        orderService.approveAfterSale(order.getId(), "seller1");
+        orderService.submitReturnTracking(order.getId(), "buyer1", "SF1234567890");
+
+        // 把寄回时间推到 8 天前，覆盖旧「7 天自动退款」窗口
+        Order sent = orderRepository.findById(order.getId()).orElseThrow();
+        sent.setReturnSentAt(java.time.LocalDateTime.now().minusDays(8));
+        orderRepository.save(sent);
+
+        afterSaleTimeoutService.sweep();
+
+        Order afterSweep = orderRepository.findById(order.getId()).orElseThrow();
+        assertEquals("return_sent", afterSweep.getStatus(), "超时不得自动退款关单");
+        User buyerAfterSweep = userRepository.findByUsername("buyer1").orElseThrow();
+        assertEquals(0, new BigDecimal("9900.00").compareTo(buyerAfterSweep.getBalance()),
+                "超时不得自动退款");
+        Product stockBeforeConfirm = productRepository.findById(product.getId()).orElseThrow();
+        assertEquals(0, stockBeforeConfirm.getQuantity(), "超时不得回补库存");
+
+        // 卖家确认收货后才退款+回补
+        orderService.confirmReturnReceived(order.getId(), "seller1");
+        Order refunded = orderRepository.findById(order.getId()).orElseThrow();
+        assertEquals("refunded", refunded.getStatus());
+        User buyerAfter = userRepository.findByUsername("buyer1").orElseThrow();
+        assertEquals(0, new BigDecimal("10000.00").compareTo(buyerAfter.getBalance()),
+                "确认收货后应退款");
+        Product restored = productRepository.findById(product.getId()).orElseThrow();
+        assertEquals(1, restored.getQuantity(), "确认收货后应回补库存");
+    }
+
+    /** B-07：已发货/已收货禁止管理员强退全款 */
+    @Test
+    void testAdminForceCancel_RejectsShippedAndReceived() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+        orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> orderService.adminForceCancel(order.getId(), "admin", "想强退"),
+                "已发货订单禁止强退全款");
+        assertTrue(ex.getMessage().contains("禁止") || ex.getMessage().contains("售后"));
+
+        Order after = orderRepository.findById(order.getId()).orElseThrow();
+        assertEquals("shipped", after.getStatus());
+        User buyer = userRepository.findByUsername("buyer1").orElseThrow();
+        assertEquals(0, new BigDecimal("9900.00").compareTo(buyer.getBalance()), "不得退款");
+    }
+
+    /** B-07：未发货可强退并留痕 */
+    @Test
+    void testAdminForceCancel_Unshipped_RefundsAndAudits() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 10000.0);
+        createTestUser("buyer1", 10000.0);
+
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+        orderService.adminForceCancel(order.getId(), "adminOps", "买家投诉卖家失联");
+
+        Order after = orderRepository.findById(order.getId()).orElseThrow();
+        assertEquals("cancelled", after.getStatus());
+        assertTrue(String.valueOf(after.getAdminCancelReason()).contains("adminOps"));
+        assertTrue(String.valueOf(after.getAdminCancelReason()).contains("买家投诉"));
+        User buyer = userRepository.findByUsername("buyer1").orElseThrow();
+        assertEquals(0, new BigDecimal("10000.00").compareTo(buyer.getBalance()));
+    }
+
+    /** B-08：卖家不存在/已注销不得标 sellerPaid，进打款异常 */
+    @Test
+    void testReleaseToSeller_SellerMissing_MarksPayException() {
+        // 商品挂在不存在的卖家上，模拟注销/账号丢失
+        Product product = createTestProduct("seller_gone", 100.0, 1);
+        createTestUser("buyer1", 10000.0);
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+
+        Order paid = orderRepository.findById(order.getId()).orElseThrow();
+        orderService.releaseToSeller(paid);
+
+        Order after = orderRepository.findById(order.getId()).orElseThrow();
+        assertFalse(Boolean.TRUE.equals(after.getSellerPaid()), "卖家异常时不得标已打款");
+        assertTrue(Boolean.TRUE.equals(after.getPayException()), "应进入打款异常队列");
+        assertNotNull(after.getPayExceptionReason());
+    }
+
+    /** B-13：自动确认不得从 shipped 直接 completed 打款，必须经过 received 缓冲 */
+    @Test
+    void testAutoComplete_DoesNotSkipReceived() {
+        Product product = createTestProduct("seller1", 100.0, 1);
+        createTestUser("seller1", 0.0);
+        createTestUser("buyer1", 10000.0);
+        Order order = createAndPay("buyer1", product.getId(), 100.0, "Test Product", 1);
+        orderService.updateOrderStatus(order.getId(), "shipped", "seller1");
+
+        Order shipped = orderRepository.findById(order.getId()).orElseThrow();
+        shipped.setShippedAt(java.time.LocalDateTime.now().minusDays(8));
+        // 预筛按 createdAt，一并回拨以模拟「8 天前发货」
+        shipped.setCreatedAt(java.time.LocalDateTime.now().minusDays(9));
+        orderRepository.save(shipped);
+
+        autoCompleteService.autoCompleteOverdue();
+
+        Order afterShip = orderRepository.findById(order.getId()).orElseThrow();
+        assertEquals("received", afterShip.getStatus(), "shipped 超时只应自动确认收货");
+        assertFalse(Boolean.TRUE.equals(afterShip.getSellerPaid()), "缓冲期内不得打款");
+
+        // 收货也超时后才 completed + 打款
+        Order received = orderRepository.findById(order.getId()).orElseThrow();
+        received.setReceivedAt(java.time.LocalDateTime.now().minusDays(8));
+        orderRepository.save(received);
+
+        autoCompleteService.autoCompleteOverdue();
+
+        Order done = orderRepository.findById(order.getId()).orElseThrow();
+        assertEquals("completed", done.getStatus());
+        assertTrue(Boolean.TRUE.equals(done.getSellerPaid()), "缓冲期满后才打款");
+        User seller = userRepository.findByUsername("seller1").orElseThrow();
+        assertEquals(0, new BigDecimal("100.00").compareTo(seller.getBalance()));
     }
 }

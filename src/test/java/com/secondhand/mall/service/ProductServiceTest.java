@@ -319,4 +319,21 @@ class ProductServiceTest {
         assertEquals(1, page.getTotalElements());
         assertEquals("Mine", page.getContent().get(0).getName());
     }
-}
+
+    @Test
+    void updateProduct_StockBelowReserved_ShouldReject() {
+        Product product = createTestProduct("Stock Guard", "active");
+        product.setQuantity(5);
+        product.setReservedQuantity(3);
+        productRepository.save(product);
+
+        Product updates = new Product();
+        updates.setQuantity(2); // 低于在途占用 3
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> productService.updateProduct(product.getId(), updates, "seller"));
+        assertTrue(ex.getMessage().contains("占用"));
+
+        updates.setQuantity(3); // 等于占用，允许
+        Product saved = productService.updateProduct(product.getId(), updates, "seller");
+        assertEquals(3, saved.getQuantity());
+    }}

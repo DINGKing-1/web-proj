@@ -19,10 +19,13 @@ public class UserController {
 
     private final UserService userService;
     private final WalletService walletService;
+    private final com.secondhand.mall.service.AdminService adminService;
 
-    public UserController(UserService userService, WalletService walletService) {
+    public UserController(UserService userService, WalletService walletService,
+                          com.secondhand.mall.service.AdminService adminService) {
         this.userService = userService;
         this.walletService = walletService;
+        this.adminService = adminService;
     }
 
     @PostMapping("/avatar")
@@ -49,7 +52,7 @@ public class UserController {
         }
     }
 
-    /** 余额充值（模拟支付，受 mall.wallet.mock-recharge-* 配置约束） */
+    /** 余额充值（模拟支付）。默认关闭；且仅管理员可调用，普通用户无法刷余额 */
     @PostMapping("/recharge")
     public Map<String, Object> recharge(@RequestBody Map<String, Object> body, HttpSession session) {
         try {
@@ -57,8 +60,17 @@ public class UserController {
             if (usernameAttr == null) {
                 return Map.of("success", false, "message", "请先登录");
             }
+            String operator = usernameAttr.toString();
+            // 权限二次校验：仅管理员可模拟充值
+            if (!adminService.isAdmin(operator)) {
+                return Map.of("success", false, "message", "无权限使用模拟充值");
+            }
+            // 可为指定用户充值，缺省充给自己（运营代充）
+            Object targetObj = body.get("username");
+            String target = (targetObj == null || String.valueOf(targetObj).isBlank())
+                    ? operator : String.valueOf(targetObj).trim();
             BigDecimal amount = new BigDecimal(String.valueOf(body.get("amount")));
-            User user = userService.recharge(usernameAttr.toString(), amount);
+            User user = userService.recharge(target, amount);
             return Map.of("success", true, "message", "充值成功", "balance", user.getBalance());
         } catch (RuntimeException e) {
             return Map.of("success", false, "message", e.getMessage());

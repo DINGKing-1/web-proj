@@ -219,7 +219,7 @@ export const adminApi = {
   restoreUser: (id) => api.post(`/api/admin/recycle/users/${id}/restore`),
   purgeUser: (id) => api.del(`/api/admin/recycle/users/${id}`),
   orders: () => api.get('/api/admin/orders'),
-  forceCancelOrder: (id) => api.post(`/api/admin/orders/${id}/force-cancel`),
+  forceCancelOrder: (id, reason) => api.post(`/api/admin/orders/${id}/force-cancel`, { reason }),
   withdraws: () => api.get('/api/admin/withdraws'),
   approveWithdraw: (id) => api.post(`/api/admin/withdraws/${id}/approve`),
   rejectWithdraw: (id, reason) => api.post(`/api/admin/withdraws/${id}/reject`, { reason }),
@@ -240,6 +240,8 @@ export const reviewApi = {
 export const couponApi = {
   claimable: () => api.get('/api/coupons/claimable'),
   mine: () => api.get('/api/coupons/mine'),
+  /** 按订单实付总额查可用券（与后端核销同口径，前端禁止自算门槛） */
+  usable: (amount) => api.get(`/api/coupons/usable?amount=${encodeURIComponent(amount)}`),
   claim: (id) => api.post(`/api/coupons/${id}/claim`),
   adminList: () => api.get('/api/admin/coupons'),
   create: (payload) => api.post('/api/admin/coupons', payload),

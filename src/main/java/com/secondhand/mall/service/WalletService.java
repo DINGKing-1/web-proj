@@ -26,13 +26,14 @@ public class WalletService {
 
     @Transactional
     public void addRecharge(String username, String amount) {
-        add(username, "recharge", "余额充值", new BigDecimal(amount));
+        BigDecimal amt = new BigDecimal(amount).setScale(2, java.math.RoundingMode.HALF_UP);
+        add(username, "recharge", "余额充值", amt);
     }
 
     /** 累计充值金额（模拟充值上限校验用） */
     public BigDecimal sumRechargeAmount(String username) {
         BigDecimal sum = walletTransactionRepository.sumAmountByUsernameAndType(username, "recharge");
-        return sum != null ? sum : BigDecimal.ZERO;
+        return sum != null ? sum.setScale(2, java.math.RoundingMode.HALF_UP) : BigDecimal.ZERO.setScale(2);
     }
 
     /** 通用资金流水：buy/sell/refund/withdraw/recharge */

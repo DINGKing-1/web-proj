@@ -79,7 +79,7 @@ public class CartService {
                 dto.setCategory(product.getCategory());
                 dto.setAvailable(true);
                 int qty = item.getQuantity() != null && item.getQuantity() > 0 ? item.getQuantity() : 1;
-                int stock = product.getQuantity() != null && product.getQuantity() > 0 ? product.getQuantity() : 1;
+                int stock = product.getQuantity() != null ? product.getQuantity() : 1;
                 dto.setQuantity(Math.min(qty, stock));
                 dto.setStock(stock);
             } else {

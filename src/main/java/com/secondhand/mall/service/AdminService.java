@@ -4,6 +4,7 @@ import com.secondhand.mall.exception.ForbiddenException;
 
 import com.secondhand.mall.aspect.Audited;
 
+import com.secondhand.mall.constant.OrderStatus;
 import com.secondhand.mall.constant.ProductStatus;
 import com.secondhand.mall.entity.Notification;
 import com.secondhand.mall.entity.Order;
@@ -23,6 +24,7 @@ public class AdminService {
 
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
+    private final StockService stockService;
     private final CommentRepository commentRepository;
     private final OrderRepository orderRepository;
     private final CartItemRepository cartItemRepository;
@@ -43,9 +45,10 @@ public class AdminService {
                         ChatRoomRepository chatRoomRepository, ReportRepository reportRepository,
                         ReviewRepository reviewRepository, NotificationRepository notificationRepository,
                         WalletTransactionRepository walletTransactionRepository,
-                        ProductService productService) {
+                        ProductService productService, StockService stockService) {
         this.userRepository = userRepository;
         this.productRepository = productRepository;
+        this.stockService = stockService;
         this.commentRepository = commentRepository;
         this.orderRepository = orderRepository;
         this.cartItemRepository = cartItemRepository;
@@ -210,17 +213,22 @@ public class AdminService {
     }
 
     /** 软删除用户：踢下线 + 标记 deleted，数据保留可恢复。
-     *  进行中订单一并强制结算（退款/回补库存），避免账号删除后钱货永久挂在平台托管。 */
+     *  进行中订单一并强制结算（退款/回补库存），避免账号删除后钱货永久挂在平台托管。
+     *  已发货/已收货/售后中订单禁止直接退款，存在时拦截注销，须先走售后或确认收货。 */
     @Transactional
     public void softDeleteUser(User user, String deletedBy) {
+        assertNoFulfilledOrders(user.getUsername());
         settleActiveOrders(user.getUsername());
-        user.setDeleted(true);
-        user.setDeletedAt(LocalDateTime.now());
-        user.setDeletedBy(deletedBy);
-        user.setSessionId(null);
+        // 结算会改余额；重载托管实体，避免用入参陈旧余额把退款覆盖回去
+        User target = userRepository.findByUsername(user.getUsername())
+                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        target.setDeleted(true);
+        target.setDeletedAt(LocalDateTime.now());
+        target.setDeletedBy(deletedBy);
+        target.setSessionId(null);
         // 其商品一并进回收站，前台不可见
-        productRepository.softDeleteByUsername(user.getUsername());
-        userRepository.save(user);
+        productRepository.softDeleteByUsername(target.getUsername());
+        userRepository.save(target);
     }
 
     /** 从回收站恢复用户（一并恢复其名下已删除商品） */
@@ -256,17 +264,20 @@ public class AdminService {
     }
 
     /**
-     * 清理用户全部业务数据（买家 + 卖家双侧），供管理员删用户与用户自助注销共用。
-     * 先结算未完成订单（退款 + 恢复库存），再删历史订单；商品软删除保持订单快照一致性。
+     * 清理用户个人业务数据（买家 + 卖家双侧），供管理员删用户与用户自助注销共用。
+     * 先结算未完成订单（退款 + 恢复库存）；订单是交易凭证永久保留，仅脱敏被删用户隐私字段，
+     * 绝不物理删除订单，否则会连带抹掉对手方的成交记录。
+     * 商品软删除保持订单快照一致性。
      */
     @Transactional
     public void purgeUserData(String username) {
+        // 已履约订单须先走售后/确认收货，禁止借删号直接退款
+        assertNoFulfilledOrders(username);
         // 未完成订单：强制结算（退款 + 恢复库存），避免钱货两空
         settleActiveOrders(username);
 
-        // 订单：买家侧 + 卖家侧（已完成/已取消的历史订单直接删）
-        orderRepository.deleteByUsername(username);
-        orderRepository.deleteBySellerUsername(username);
+        // 订单：永久保留作交易凭证，仅脱敏本用户的隐私字段
+        anonymizeOrders(username);
 
         // 商品：软删除
         productRepository.softDeleteByUsername(username);
@@ -287,10 +298,33 @@ public class AdminService {
         walletTransactionRepository.deleteByUsername(username);
     }
 
+    /** 被注销用户在订单上的展示名 */
+    private static final String MASKED_USER = "已注销用户";
+
+    /**
+     * 订单脱敏：买家侧改用户名并清空收货人/手机/地址；卖家侧改卖家名。
+     * 收货信息属买家隐私，仅在买家被删时清空，保留对手方（卖家）视角的成交数据。
+     */
+    private void anonymizeOrders(String username) {
+        for (Order o : orderRepository.findByUsernameOrderByCreatedAtDesc(username)) {
+            o.setUsername(MASKED_USER);
+            o.setReceiverName(MASKED_USER);
+            o.setReceiverPhone("");
+            o.setReceiverAddress("");
+            orderRepository.save(o);
+        }
+        for (Order o : orderRepository.findBySellerUsernameOrderByCreatedAtDesc(username)) {
+            o.setSellerUsername(MASKED_USER);
+            orderRepository.save(o);
+        }
+    }
+
     /**
      * 将用户相关的未完结订单强制结算：
-     * 仅已支付状态（unshipped/shipped/received/after_sale/return_*）退款给买家；
-     * pending_payment 从未扣款只回补库存；completed/cancelled/refunded 跳过防重复结算。
+     * pending_payment：从未扣款，只关单回补库存；
+     * unshipped：全额退款 + 关单 + 回补库存；
+     * shipped/received/after_sale/return_*：已履约，禁止直接退款（注销入口已拦截，此处再兜底跳过）；
+     * completed/cancelled/refunded：终态跳过防重复结算。
      * 金额走实付口径（扣优惠券），并退回优惠券、写资金流水。
      * 每单走 findByIdForUpdate 行锁并复核状态，防与取消/支付/超时任务并发双结算。
      */
@@ -312,7 +346,12 @@ public class AdminService {
             if (order == null) continue;
             String status = order.getStatus();
             // 终态跳过：防二次退款/二次回补库存
-            if ("completed".equals(status) || "cancelled".equals(status) || "refunded".equals(status)) {
+            if (OrderStatus.COMPLETED.equals(status) || OrderStatus.CANCELLED.equals(status)
+                    || OrderStatus.REFUNDED.equals(status)) {
+                continue;
+            }
+            // 已履约（货已出库/售后中）：不得直接退款关单，留给售后或确认收货流程
+            if (isFulfilledStatus(status)) {
                 continue;
             }
             int qty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
@@ -321,9 +360,10 @@ public class AdminService {
             BigDecimal discount = order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO;
             BigDecimal rawRefund = price.multiply(BigDecimal.valueOf(qty)).subtract(discount);
             final BigDecimal refund = rawRefund.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : rawRefund;
-            boolean paid = isPaidStatus(status);
+            // 仅「已付款未发货」可全额退款；待付款从未扣款
+            boolean refundable = OrderStatus.UNSHIPPED.equals(status);
 
-            if (paid) {
+            if (refundable) {
                 userRepository.findByUsernameForUpdate(order.getUsername()).ifPresent(buyer -> {
                     buyer.setBalance(buyer.getBalance().add(refund));
                     userRepository.save(buyer);
@@ -350,36 +390,50 @@ public class AdminService {
                 }
             }
 
-            // 仅货在卖方侧（未发货/未付款/退货在途）才回补库存；
+            // 仅货在卖方侧（待付款/已付款未发货）才回补库存；
             // 已发货后货在买家或途上，回补会造出幽灵库存
+            // StockService：悲观锁 + @Version，防与并发下单/取消丢失更新
             if (order.getProductId() != null && stockHeldBySeller(status)) {
-                productRepository.findById(order.getProductId()).ifPresent(product -> {
-                    int restored = product.getQuantity() != null ? product.getQuantity() : 0;
-                    product.setQuantity(restored + qty);
-                    if (ProductStatus.SOLD.equals(product.getStatus())) {
-                        product.setStatus(ProductStatus.ACTIVE);
-                    }
-                    productRepository.save(product);
-                });
+                stockService.restore(order.getProductId(), qty);
             }
-            order.setStatus("cancelled");
+            order.setStatus(OrderStatus.CANCELLED);
             orderRepository.save(order);
         }
     }
 
-    /** 货权是否在卖方侧（与 OrderService 同口径）：未出库或退货已在途 */
+    /** 货权是否在卖方侧（与 OrderService 同口径）：未出库 */
     private static boolean stockHeldBySeller(String status) {
-        return "pending_payment".equals(status) || "unshipped".equals(status) || "return_sent".equals(status);
+        return OrderStatus.PENDING_PAYMENT.equals(status) || OrderStatus.UNSHIPPED.equals(status);
+    }
+
+    /** 已履约未完结：货已出库或进入售后，禁止在注销/删号结算中直接退款关单 */
+    private static boolean isFulfilledStatus(String status) {
+        return OrderStatus.SHIPPED.equals(status)
+                || OrderStatus.RECEIVED.equals(status)
+                || OrderStatus.AFTER_SALE.equals(status)
+                || OrderStatus.RETURN_SHIPPING.equals(status)
+                || OrderStatus.RETURN_SENT.equals(status);
+    }
+
+    /**
+     * 注销/删号前置校验：买家或卖家侧存在已履约订单则拦截。
+     * 已发货/已收货/售后中不得直接退款，须先完成售后或确认收货。
+     */
+    public void assertNoFulfilledOrders(String username) {
+        for (Order o : orderRepository.findByUsernameOrderByCreatedAtDesc(username)) {
+            if (isFulfilledStatus(o.getStatus())) {
+                throw new RuntimeException("存在已履约订单，请先完成售后或确认收货后再注销");
+            }
+        }
+        for (Order o : orderRepository.findBySellerUsernameOrderByCreatedAtDesc(username)) {
+            if (isFulfilledStatus(o.getStatus())) {
+                throw new RuntimeException("存在已履约订单，请先完成售后或确认收货后再注销");
+            }
+        }
     }
 
     /** 可选注入：用于注销结算时退回优惠券 */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private CouponService couponService;
-
-    private static boolean isPaidStatus(String status) {
-        return "unshipped".equals(status) || "shipped".equals(status) || "received".equals(status)
-                || "after_sale".equals(status) || "return_shipping".equals(status)
-                || "return_sent".equals(status);
-    }
 }
 

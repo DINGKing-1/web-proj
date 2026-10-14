@@ -27,6 +27,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u WHERE u.deleted = true")
     List<User> findDeletedUsers();
 
+    /** 用户行锁。统一加锁顺序：商品 → 卖家 → 买家 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM User u WHERE u.username = :username")
     Optional<User> findByUsernameForUpdate(@Param("username") String username);

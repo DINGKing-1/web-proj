@@ -3,11 +3,14 @@ package com.secondhand.mall.config;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 @Configuration
 @EnableWebSecurity
@@ -20,25 +23,43 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        CsrfTokenRequestAttributeHandler requestHandler = new CsrfTokenRequestAttributeHandler();
+        // SPA fetch 自定义头 X-XSRF-TOKEN / X-Requested-With（ApiCsrfHeaderFilter 双保险）
+        requestHandler.setCsrfRequestAttributeName(null);
         http
-            // CSRF：默认 Token 与 SPA fetch 不兼容，改用 ApiCsrfHeaderFilter（X-Requested-With）
-            // + Session Cookie SameSite=lax 共同防护
-            .csrf(csrf -> csrf.disable())
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRequestHandler(requestHandler)
+                // 认证接口先拿 Token 再登录；这些路径另有 ApiCsrfHeaderFilter + SameSite 兜底
+                .ignoringRequestMatchers("/api/login", "/api/register", "/api/admin/login",
+                        "/api/user/reset-password", "/api/user/reset-code")
+            )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .authorizeHttpRequests(auth -> auth
                 // 静态资源 & 公开页面
                 .requestMatchers("/css/**", "/js/**", "/product-images/**", "/user-avatar/**").permitAll()
-                .requestMatchers("/", "/login", "/register", "/search", "/category/**", "/product/**", "/shop/**", "/notifications", "/order/**").permitAll()
-                // 公开 API
+                .requestMatchers("/", "/login", "/register", "/search", "/category/**", "/product/**", "/shop/**").permitAll()
+                // 公开 API（只读商品/搜索/店铺/公告等）
                 .requestMatchers("/api/login", "/api/register").permitAll()
-                .requestMatchers("/api/products", "/api/products/**").permitAll()
+                .requestMatchers("/api/csrf").permitAll()
                 .requestMatchers("/api/admin/login").permitAll()
-                .requestMatchers("/api/**").permitAll()
-                // 管理后台页面
-                .requestMatchers("/admin", "/admin/**").permitAll()
-                // 鉴权由 SessionValidationFilter（未登录 401）+ 各 Controller 的
-                // getLoginUsername / checkAdmin 完成；新增写接口务必自行校验
-                .anyRequest().permitAll()
+                .requestMatchers("/api/user/reset-password", "/api/user/reset-code").permitAll()
+                .requestMatchers("/api/session").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/sellers/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/search/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/categories").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/announcements").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/support/faq").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/reports/**").permitAll()
+                // 管理端登录页壳
+                // Swagger：开发环境 Basic Auth，生产已通过 springdoc.enabled=false 关闭
+                // Swagger 由 SwaggerBasicAuthFilter 做 Basic Auth（开发环境）
+                .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                .requestMatchers("/admin", "/admin/login").permitAll()
+                // 其余一律要求已认证（SessionValidationFilter 桥接 SecurityContext）
+                .requestMatchers("/api/admin/**", "/admin/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
             )
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
@@ -49,6 +70,11 @@ public class SecurityConfig {
                     response.setContentType("application/json;charset=UTF-8");
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     response.getWriter().write("{\"success\":false,\"message\":\"请先登录\"}");
+                })
+                .accessDeniedHandler((request, response, accessDeniedException) -> {
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.getWriter().write("{\"success\":false,\"message\":\"无管理员权限\"}");
                 })
             );
 

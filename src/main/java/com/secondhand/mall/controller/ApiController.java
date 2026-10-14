@@ -62,9 +62,11 @@ public class ApiController extends BaseApiController {
             session.setAttribute("username", user.getUsername());
             session.setAttribute("nickname", user.getNickname());
             session.setAttribute("role", user.getRole());
+            session.setAttribute("mustChangePassword", Boolean.TRUE.equals(user.getMustChangePassword()));
             userService.setSessionId(user.getUsername(), newSessionId);
 
             return ok("登录成功")
+                    .put("mustChangePassword", Boolean.TRUE.equals(user.getMustChangePassword()))
                     .put("username", user.getUsername())
                     .put("nickname", user.getNickname())
                     .put("balance", user.getBalance())
@@ -86,6 +88,7 @@ public class ApiController extends BaseApiController {
             session.setAttribute("username", user.getUsername());
             session.setAttribute("nickname", user.getNickname());
             session.setAttribute("role", user.getRole());
+            session.setAttribute("mustChangePassword", Boolean.TRUE.equals(user.getMustChangePassword()));
             userService.setSessionId(user.getUsername(), newSessionId);
 
             return ok("注册成功")

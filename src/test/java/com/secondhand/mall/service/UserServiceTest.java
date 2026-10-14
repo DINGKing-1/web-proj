@@ -50,6 +50,35 @@ class UserServiceTest {
     }
 
     @Test
+    void testRegister_NoDefaultGiftBalance() {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("newbie");
+        request.setPassword("password123");
+        userService.register(request, "sid-newbie");
+        User u = userRepository.findByUsername("newbie").orElseThrow();
+        assertEquals(0, u.getBalance().compareTo(java.math.BigDecimal.ZERO),
+                "新用户默认不得赠金");
+    }
+
+    /** B-15：充值金额必须 2 位小数，防对账漂移 */
+    @Test
+    void testRecharge_NormalizesScaleTo2() {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("scaler");
+        request.setPassword("password123");
+        userService.register(request, "sid-scale");
+
+        User after = userService.recharge("scaler", new java.math.BigDecimal("10.5"));
+        assertEquals(2, after.getBalance().scale(), "余额应保留 2 位小数");
+        assertEquals(0, after.getBalance().compareTo(new java.math.BigDecimal("10.50")));
+
+        User after2 = userService.recharge("scaler", new java.math.BigDecimal("0.005"));
+        // 0.005 → 0.01 HALF_UP
+        assertEquals(0, after2.getBalance().compareTo(new java.math.BigDecimal("10.51")));
+        assertEquals(2, after2.getBalance().scale());
+    }
+
+    @Test
     void testRecharge_RespectsCumulativeCap() {
         RegisterRequest request = new RegisterRequest();
         request.setUsername("richuser");

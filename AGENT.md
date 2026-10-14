@@ -41,9 +41,8 @@ curl -X POST -H "X-Requested-With: XMLHttpRequest" http://localhost:8080/interna
 > 改 Java 后必须 `mvn clean package`，否则 `target/classes` 残留旧 class 会打进 jar。
 
 ## 默认账号
-- **管理员**: admin / admin123（由 DataInitializer 以 BCrypt 创建）
-- **演示买家**: demo_buyer1 / demo_buyer2 / demo_buyer3（密码 demo123456，余额 2 万）
-- **演示卖家**: demo_seller1 / demo_seller2 / demo_seller3（密码 demo123456，各挂 4 件商品）
+- **管理员**: admin（初始口令来自 MALL_ADMIN_PASSWORD / mall.security.admin-init-password；未配置则随机生成且**不写日志**）。**首次登录强制改密**（User.mustChangePassword），否则仅允许改密/退出相关接口
+- **演示买家/卖家**（DemoDataInitializer，仅 dev/	est profile）: demo_buyer1~3 / demo_seller1~3，随机口令
 
 ## 演示数据（DemoDataInitializer）
 
@@ -62,13 +61,13 @@ curl -X POST -H "X-Requested-With: XMLHttpRequest" http://localhost:8080/interna
 
 | 实体 | 说明 |
 |------|------|
-| `User` | 用户（username, password, nickname, avatar, balance, role）；软删除 `deleted`/`deletedAt`/`deletedBy`（self\|admin） |
-| `Product` | 商品（name, category, originalPrice, secondHandPrice, status, imageUrl, sellerUsername, reviewNote）；sellerPhone 序列化只写不读；status: pending(待审)/active/sold/inactive/rejected(驳回)/deleted |
+| `User` | 用户（username, password, nickname, avatar, balance, role, mustChangePassword）；软删除 `deleted`/`deletedAt`/`deletedBy`（self\|admin）；`mustChangePassword` 首登强制改密 |
+| `Product` | 商品（name, category, originalPrice, secondHandPrice, status, imageUrl, sellerUsername, reviewNote, quantity, reservedQuantity）；sellerPhone 序列化只写不读；status: pending(待审)/active/sold/inactive/rejected(驳回)/deleted；库存=可售 quantity + 占用 reservedQuantity |
 | `Order` | 订单（orderNumber, status, quantity, buyerUsername, sellerUsername） |
 | `CartItem` | 购物车项 |
 | `Comment` | 商品留言（详情页「商品留言」区；本人/卖家可删，敏感词校验） |
 | `Favorite` | 收藏 |
-| `ChatRoom` | 聊天室（buyerUsername, sellerUsername） |
+| `ChatRoom` | 聊天室（user1Username, user2Username, productId, roomType）；删除为用户维度逻辑删除 `deletedByUser1`/`deletedByUser2`，一方删不影响另一方 |
 | `ChatMessage` | 聊天消息（messageType: text/image/video） |
 | `Address` | 收货地址 |
 | `Notification` | 站内通知（type, title, refType/refId, readFlag） |
@@ -189,10 +188,10 @@ src/main/resources/
 | GET | `/api/admin/audit-logs` | 操作审计分页查询（支持 operator 筛选） |
 | GET | `/api/admin/export/orders`、`/users`、`/wallet` | CSV 导出（UTF-8 BOM，Excel 可直接打开） |
 | GET | `/swagger-ui.html`、`/v3/api-docs` | 接口文档（springdoc，115 个路径） |
-| GET | `/api/coupons/claimable`、`/api/coupons/mine` | 可领取 / 我的优惠券 |
+| GET | `/api/coupons/claimable`、`/api/coupons/mine`、`/api/coupons/usable?amount=` | 可领取 / 我的 / 按订单实付总额查可用券 |
 | POST | `/api/coupons/{id}/claim` | 领取优惠券 |
 | GET/POST/PUT/DELETE | `/api/admin/coupons*` | 优惠券发放与管理（已发放的删除会自动转停用） |
-| POST | `/api/orders/{id}/pay`（body 可带 userCouponId） | 支付时核销优惠券 |
+| POST | `/api/orders/{id}/pay`（body 可带 userCouponId） | 支付时核销优惠券（门槛=该单实付总额，不足则抛错回滚） |
 | GET | `/api/seller/stats` | 卖家经营看板（商品/成交/待结算/已到账/近 14 天趋势） |
 | POST | `/api/reviews/{id}/reply`、`/api/reviews/{id}/followup` | 卖家回复评价 / 买家追评（一条评价一次） |
 | PUT | `/api/admin/reports/{id}`（body 可带 action） | 举报处置：`none` 仅标记 / `offline` 下架 / `delete` 进回收站 |
@@ -242,7 +241,7 @@ src/main/resources/
 
 ### 6. 回收站（可追回）
 - **商品**：`status=deleted` 软删除；恢复 → `active`；彻底删除才物理删
-- **用户**：自助注销 / 管理员删除均为软删除（`deleted=true` + `deletedAt`/`deletedBy`），业务数据保留；登录拒绝已删用户；恢复用户时一并恢复其名下 deleted 商品；「彻底删除」才 `purgeUserData` + 物理删
+- **用户**：自助注销 / 管理员删除均为软删除（`deleted=true` + `deletedAt`/`deletedBy`），业务数据保留；登录拒绝已删用户；恢复用户时一并恢复其名下 deleted 商品；「彻底删除」`purgeUserData` 清个人业务数据，**订单永久保留只脱敏**（用户名→「已注销用户」，买家收货手机/地址清空），不物理删对手方订单
 - 后台页面：`/admin/recycle`（`AdminRecyclePage`，商品/用户两个 Tab）
 
 ### 6. 分页规则
@@ -280,15 +279,18 @@ after_sale(待卖家处理) → return_shipping(待买家寄回) → return_sent
   与挂牌价的一致性校验只作用于普通下单（防客户端篡改）
 - **退货售后是两段式**：卖家「同意退货」只改状态不退款（记 `returnApprovedAt`）；买家填
   `returnTrackingNumber` 寄回后，卖家「确认收货」才 `settleRefund`（退款+回补库存）→ `refunded`。
+  填单前经 `LogisticsService.validateReturnTracking` 校验格式/快递公司/揽收记录，无效运单禁止提交；
+  **取消「填运单 7 天自动退款」**，假运单或超时未确认均不会自动放款。
   这样避免钱货两空。`refunded` 不计入销量/GMV/待结算。
+- **库存模型（可售+占用）**：quantity=可售，eservedQuantity=已下单占用；下单 deduct 同步占用++，回补 restore 同步占用--。**卖家仅可改可售库存，且不得低于已付款订单占用量与在途占用**（updateProduct 校验）
 - **库存只在货权在卖方侧时回补**（pending_payment/unshipped/return_sent）；已发货后强制退款
-  不回补库存，防止造出卖家手里没有的幽灵库存。
+  不回补库存，防止造出卖家手里没有的幽灵库存。库存增减统一走 `StockService`（`findByIdForUpdate` 悲观行锁 + `Product.version` 乐观锁兜底），防并发丢失更新超卖。
 - **超时兜底**：`OrderAfterSaleTimeoutService` 每 10 分钟扫一次，
   `after_sale` 超 72 小时未处理 → 自动同意退货并双向通知；买家寄回窗口 7 天
   **自同意退货（`returnApprovedAt`）起算**，卖家拖 72h 不会吃掉买家寄回时间。
   超时任务逐单独立事务（单笔失败只回滚自己）。
 - **平台仲裁**：管理员「强制取消」对 after_sale/return_* 同样有效（直接退款结案）
-- **注销/软删除用户**会先强制结算其进行中订单（退款+回补库存），钱包流水保留可对账
+- **注销/软删除用户**会先结算其进行中订单：待付款关单回补库存，已付款未发货全额退款并回补库存；**已发货/已收货/售后中禁止直接退款**，存在时拦截注销（提示「存在已履约订单，请先完成售后或确认收货后再注销」），须先走售后或确认收货。钱包流水保留可对账
 
 ---
 
@@ -325,11 +327,16 @@ after_sale(待卖家处理) → return_shipping(待买家寄回) → return_sent
   前端 `client.js` 自动注入，`stop.ps1`/`restart.ps1` 关服请求同样带该头
 - **模拟充值**：`mall.wallet.mock-recharge-enabled`（生产 false）+ 单笔/累计上限；
   新用户初始余额 `mall.user.initial-balance`（生产 0）
-- **管理员口令**：仅首次创建时写入（`MALL_ADMIN_PASSWORD` 或配置项；空则随机生成并打印一次）；
+- **管理员口令**：仅首次创建时写入（`MALL_ADMIN_PASSWORD` 或配置项；空则随机生成）；
+  **口令绝不写日志**；创建即 `mustChangePassword=true`，首次登录强制改密（SessionValidationFilter 拦截非改密接口）；
   **绝不覆盖已有密码**，也不把异常口令批量重置成弱口令
 - **订单快照**：名称/分类/图片一律取服务端商品，防伪造；运单号仅发货时写入
 - **CSV 导出**：公式字符（=`+`-`@）前置单引号，防 Excel 公式注入
-- **找回密码验证码**默认不落日志（`mall.security.log-mail-codes`）
+- **验证码一律不落日志**（含开发环境）；无 SMTP 时仅存存储并打 `[Mail][CONFIG]` 告警，不输出验证码
+- **Swagger**：生产 `springdoc.api-docs.enabled=false` 关闭文档与 UI；开发环境 `/v3/api-docs/**`、`/swagger-ui/**` 走 `SwaggerBasicAuthFilter` Basic Auth（默认 swagger/swagger-dev）
+- **优惠券编码**：库层 `uk_coupons_code` 唯一 + `CouponService.createCoupon` 服务层 `existsByCode` 双保险
+- **聊天删除**：用户维度逻辑删除（`deletedByUser1`/`deletedByUser2`），一方删除不影响另一方会话与记录
+- **SSE**：会话失效/被踢立即断开；120s 心跳清扫失效连接；同房仅保留最新连接
 - **登录后改密**：必须已绑定邮箱；需当前密码 + 邮箱验证码（与找回密码的码按用途隔离）；
   改密后其他会话被踢下线，当前会话续期。`PUT /api/user` 不再改密码
 - **关服接口**：拒绝带 `X-Forwarded-For`/`X-Real-IP` 的请求，防反代绕过「仅本机」
@@ -338,10 +345,75 @@ after_sale(待卖家处理) → return_shipping(待买家寄回) → return_sent
 
 ---
 
+---
+
+## 项目状态（P0 缺陷修复进度）
+
+> 更新时间：完成 B-16～B-22 后。后端测试 **102 通过 / 0 失败**（1 跳过 MailSendSmokeTest）。
+
+### 已完成（B-01 ～ B-22）
+
+| 编号 | 结论 | 状态 |
+|------|------|------|
+| B-01 | 注销不得对已发货/已收货/售后中订单强制退款 | 完成 |
+| B-02 | 取消「填运单 7 天自动退款」；退货运单须校验（物流格式/快递公司/揽收） | 完成 |
+| B-03 | purgeUser 保留对手方订单，仅脱敏 PII（用户名→「已注销用户」，手机/地址清空） | 完成 |
+| B-04 | 优惠券门槛=订单实付总额；后端新增 /api/coupons/usable，前端统一口径 | 完成 |
+| B-05 | 库存回补/扣减统一走 StockService（悲观锁 + @Version 乐观锁兜底） | 完成 |
+| B-06 | 全局加锁顺序统一：商品 → 卖家 → 买家 | 完成 |
+| B-07 | 管理员强制取消仅限 pending/unshipped；其余走售后仲裁；写审计日志 | 完成 |
+| B-08 | 卖家不存在/已注销 → payException，绝不 sellerPaid=true | 完成 |
+| B-10 | DemoDataInitializer 限 @Profile({"dev","test"})；随机口令不写日志 | 完成 |
+| B-11 | 模拟充值默认关闭（mock-recharge-enabled=false）；初始余额默认 0；充值 admin 专属 | 完成 |
+| B-12 | 空会话一律 401；Security 收紧（authenticated/hasRole）；CSRF 开启（CookieCsrfTokenRepository） | 完成 |
+| B-13 | 自动确认收货两段式：shipped→received，received→completed+打款 | 完成 |
+| B-14 | 站内通知改 AFTER_COMMIT，事务回滚不再误发 | 完成 |
+| B-15 | 金额统一 setScale(2, HALF_UP)（充值/钱包/订单实付） | 完成 |
+| B-16 | 库存=可售 quantity + 占用 reservedQuantity；卖家改库存不得低于已付款占用与在途占用 | 完成 |
+| B-17 | 聊天删除改用户维度逻辑删除（deletedByUser1/2），一方删不影响另一方 | 完成 |
+| B-18 | SSE 会话失效/被踢立即断开；120s 心跳清扫；同房仅留最新连接 | 完成 |
+| B-19 | 验证码一律不落日志；无 SMTP 仅存存储 + [Mail][CONFIG] 告警 | 完成 |
+| B-20 | 优惠券编码库层唯一索引 + createCoupon 服务层 existsByCode 双保险 | 完成 |
+| B-21 | admin 随机口令不写日志；mustChangePassword 首登强制改密 | 完成 |
+| B-22 | 生产关闭 Swagger（springdoc.enabled=false）；开发 Basic Auth | 完成 |
+
+### 未修复（P1/P2，待排期）
+
+| 编号 | 问题 | 影响 |
+|------|------|------|
+| B-09 | 扣回卖家余额无下限，可被扣成负数 | 资金安全 |
+| B-23 | 结算页双击可重复提交订单（confirm 后仍可点） | 重复下单 |
+| B-24 | 路由守卫放行未登录进 /admin/*；403 不被 isAuthFailure 识别 → 管理页死路 | 管理端可用性 |
+| B-25 | 匿名用户在需登录页 401 不跳登录（hadLogin 短路） | 登录引导 |
+| B-26 | 「被踢下线」两条路径竞态（client.js 401 分流 vs stores/user.js refreshSession） | 体验 |
+| B-27 | 订单列表「确认支付」无防重，可发两次 pay | 重复支付 |
+| B-28 | 多单优惠券核销目标按单价而非行金额挑选 | 用券金额 |
+| B-29 | 券面额 > 订单额时前端隐藏该券（后端本可封顶核销） | 用券体验 |
+
+### 数据库迁移（本轮新增）
+
+| 文件 | 内容 |
+|------|------|
+| db/migration/V13 + sql/migration-v6 | products.reserved_quantity |
+| db/migration/V14 + sql/migration-v7 | chat_rooms.deleted_by_user1/2 |
+| db/migration/V15 + sql/migration-v8 | users.must_change_password |
+| sql/init.sql | 同步 reserved_quantity / chat 删除列 / must_change_password |
+
+> 生产 ddl-auto=validate：上线前须按序执行上述 SQL。
+
+### 测试现状
+
+- 后端：AdminService(11) / BigDecimal(4) / CartService(1) / ChatService(2) / CommentService(2) /
+  CouponService(10) / OfferService(6) / OrderService(31) / ProductService(18) /
+  UserService(10) / WithdrawService(6) = **102 通过**
+- 新增用例：updateProduct_StockBelowReserved_ShouldReject、createCoupon_DuplicateCode_ShouldReject
+- 前端 Vue 源码有改动（优惠券口径/强制改密提示等），src/main/resources/static 未重新构建；
+  生产发版前需 cd frontend && npm run build
+
 ## 测试
 
 ```bash
-.\.maven\apache-maven-3.9.6\bin\mvn.cmd test   # 后端 45 个
+.\.maven\apache-maven-3.9.6\bin\mvn.cmd test   # 后端 102 个
 cd frontend && npm test                        # 前端工具函数冒烟
 cd frontend && npm run lint                    # ESLint（JS 源码）
 ```

@@ -6,11 +6,11 @@ import AppModal from '@/components/AppModal.vue'
 
 /**
  * 支付时选优惠券。
- * 只列出「未使用 + 在有效期 + 满足门槛 + 抵扣不超过本单金额」的券。
+ * 可用列表一律由后端 /api/coupons/usable 按订单实付总额计算，前端禁止自算门槛。
  */
 const props = defineProps({
   show: { type: Boolean, default: false },
-  /** 本单原价总额（元） */
+  /** 本单实付总额（元），与后端核销门槛同口径 */
   gross: { type: Number, default: 0 },
   orderId: { type: [Number, String], default: null }
 })
@@ -27,28 +27,14 @@ watch(
     selected.value = 0
     loading.value = true
     try {
-      const d = await couponApi.mine()
-      options.value = d.success ? filterUsable(d.coupons || []) : []
+      const d = await couponApi.usable(Number(props.gross) || 0)
+      options.value = d.success ? (d.coupons || []) : []
     } catch {
       options.value = []
     }
     loading.value = false
   }
 )
-
-function filterUsable(rows) {
-  const now = Date.now()
-  const gross = Number(props.gross) || 0
-  return rows
-    .filter((c) => c.status === 'unused')
-    .filter((c) => {
-      const start = c.startAt ? new Date(c.startAt).getTime() : 0
-      const end = c.endAt ? new Date(c.endAt).getTime() : Number.MAX_SAFE_INTEGER
-      return now >= start && now <= end
-    })
-    .filter((c) => gross + 1e-9 >= Number(c.minAmount || 0))
-    .filter((c) => Number(c.discountAmount || 0) > 0 && Number(c.discountAmount || 0) <= gross + 1e-9)
-}
 
 const chosen = computed(() => options.value.find((c) => c.userCouponId === selected.value) || null)
 const discount = computed(() => (chosen.value ? Number(chosen.value.discountAmount) : 0))

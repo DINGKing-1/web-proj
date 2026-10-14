@@ -17,7 +17,8 @@ import java.util.List;
  * 售后超时兜底：
  * 1. after_sale 卖家超 72h 未处理 → 自动同意退货（不直接退款，货到再放钱）
  * 2. return_shipping 买家超 7 天未寄回（自同意退货起算）→ 自动关闭售后，回到申请前状态
- * 3. return_sent 卖家超 7 天未确认收货 → 自动退款（避免买家永久等待）
+ * 3. return_sent：不再超时自动退款。假运单/未确认收货不得触发退款+回补，
+ *    退款与库存回补仅在卖家 confirmReturnReceived 确认收到退货后执行。
  * 每单独立事务：单笔失败只回滚自己，不拖垮整批、也不会半提交。
  */
 @Service
@@ -26,19 +27,15 @@ public class OrderAfterSaleTimeoutService {
     private static final Logger log = LoggerFactory.getLogger(OrderAfterSaleTimeoutService.class);
     private static final int SELLER_HANDLE_HOURS = 72;
     private static final int BUYER_SHIP_DAYS = 7;
-    private static final int SELLER_CONFIRM_DAYS = 7;
 
     private final OrderRepository orderRepository;
-    private final OrderService orderService;
     private final NotificationService notificationService;
     private final TransactionTemplate txTemplate;
 
     public OrderAfterSaleTimeoutService(OrderRepository orderRepository,
-                                        OrderService orderService,
                                         NotificationService notificationService,
                                         PlatformTransactionManager transactionManager) {
         this.orderRepository = orderRepository;
-        this.orderService = orderService;
         this.notificationService = notificationService;
         this.txTemplate = new TransactionTemplate(transactionManager);
     }
@@ -47,7 +44,7 @@ public class OrderAfterSaleTimeoutService {
     @Scheduled(fixedDelay = 600_000L, initialDelay = 120_000L)
     public void sweep() {
         try {
-            int n = autoApproveOverdue() + autoCloseUnshippedReturn() + autoRefundUnconfirmedReturn();
+            int n = autoApproveOverdue() + autoCloseUnshippedReturn();
             if (n > 0) {
                 log.info("[AfterSaleTimeout] 自动处理 {} 笔超时售后", n);
             }
@@ -151,9 +148,13 @@ public class OrderAfterSaleTimeoutService {
         };
     }
 
-    /** 买家已寄回、卖家超 7 天未确认收货 → 自动退款 */
-    public int autoRefundUnconfirmedReturn() {
-        LocalDateTime deadline = LocalDateTime.now().minusDays(SELLER_CONFIRM_DAYS);
+    /**
+     * 假运单/卖家未确认不得自动退款。
+     * 历史上的「填运单 7 天自动退款 + 回补库存」已移除：货仍在买家侧时自动放款会造成资损。
+     * 退款与库存回补的唯一出口是卖家 confirmReturnReceived；此处仅提醒卖家及时确认。
+     */
+    public int notifyUnconfirmedReturn() {
+        LocalDateTime deadline = LocalDateTime.now().minusDays(BUYER_SHIP_DAYS);
         List<Order> list = orderRepository.findByStatusAndCreatedAtBefore(OrderStatus.RETURN_SENT, deadline);
         int count = 0;
         for (Order o : list) {
@@ -163,20 +164,15 @@ public class OrderAfterSaleTimeoutService {
                     if (order == null || !OrderStatus.RETURN_SENT.equals(order.getStatus())) return false;
                     LocalDateTime since = order.getReturnSentAt() != null ? order.getReturnSentAt() : order.getCreatedAt();
                     if (since.isAfter(deadline)) return false;
-
-                    orderService.settleRefundAndMarkRefunded(order);
-
-                    notificationService.push(order.getUsername(), "order", "退货已自动退款",
-                        "「" + order.getProductName() + "」卖家超时未确认收货，平台已自动退款",
-                        "order", String.valueOf(order.getId()));
-                    notificationService.push(order.getSellerUsername(), "order", "退货已自动结算",
-                        "「" + order.getProductName() + "」退货超时未确认，平台已自动退款给买家",
+                    notificationService.push(order.getSellerUsername(), "order", "退货待确认提醒",
+                        "「" + order.getProductName() + "」买家已寄回（运单 " + order.getReturnTrackingNumber()
+                                + "），请确认收货后完成退款；平台不会自动退款",
                         "order", String.valueOf(order.getId()));
                     return true;
                 });
                 if (Boolean.TRUE.equals(done)) count++;
             } catch (Exception e) {
-                log.warn("[AfterSaleTimeout] 订单 {} 自动退款失败: {}", o.getId(), e.getMessage());
+                log.warn("[AfterSaleTimeout] 订单 {} 退货提醒失败: {}", o.getId(), e.getMessage());
             }
         }
         return count;

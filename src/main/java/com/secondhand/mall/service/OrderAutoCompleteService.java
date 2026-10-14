@@ -1,5 +1,6 @@
 package com.secondhand.mall.service;
 
+import com.secondhand.mall.constant.OrderStatus;
 import com.secondhand.mall.entity.Order;
 import com.secondhand.mall.repository.OrderRepository;
 import org.slf4j.Logger;
@@ -13,15 +14,16 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 自动确认收货 / 自动完成：
- * - shipped 超过 7 天 → 自动收货并完成（打款给卖家）
- * - received 超过 7 天 → 自动完成（打款给卖家）
- * 每单独立事务：单笔失败只回滚自己，不拖垮整批、也不会半提交。
+ * 自动确认收货 / 自动完成（两段式，禁止跳状态直接打款）：
+ * 1. shipped 超过 7 天（自发货起）→ 自动确认收货 received（缓冲，不打款）
+ * 2. received 超过 7 天（自收货起）→ 自动完成 completed 并打款给卖家
+ * 每单独立事务：单笔失败只回滚自己。
  */
 @Service
 public class OrderAutoCompleteService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderAutoCompleteService.class);
+    /** 发货后买家确认收货窗口 / 收货后评价缓冲期 */
     private static final int AUTO_DAYS = 7;
 
     private final OrderRepository orderRepository;
@@ -45,7 +47,7 @@ public class OrderAutoCompleteService {
         try {
             int n = autoCompleteOverdue();
             if (n > 0) {
-                log.info("[AutoComplete] 自动完结 {} 笔超时订单", n);
+                log.info("[AutoComplete] 自动处理 {} 笔超时订单", n);
             }
         } catch (Exception e) {
             log.warn("[AutoComplete] 扫描失败: {}", e.getMessage());
@@ -53,54 +55,78 @@ public class OrderAutoCompleteService {
     }
 
     public int autoCompleteOverdue() {
-        LocalDateTime deadline = LocalDateTime.now().minusDays(AUTO_DAYS);
-        List<Order> shipped = orderRepository.findByStatusAndCreatedAtBefore("shipped", deadline);
-        List<Order> received = orderRepository.findByStatusAndCreatedAtBefore("received", deadline);
         int count = 0;
-        for (Order o : shipped) {
-            if (finishSafe(o, deadline, true, "买家超时未确认，系统自动确认收货")) count++;
+        // 1) 已发货超时 → 仅自动确认收货，进入缓冲期，禁止直接打款
+        LocalDateTime shipDeadline = LocalDateTime.now().minusDays(AUTO_DAYS);
+        for (Order o : orderRepository.findByStatusAndCreatedAtBefore(OrderStatus.SHIPPED, shipDeadline)) {
+            if (confirmReceivedSafe(o, shipDeadline)) count++;
         }
-        for (Order o : received) {
-            if (finishSafe(o, deadline, false, "买家超时未评价，系统自动完成")) count++;
+        // 2) 已收货超时缓冲期满 → 自动完成并打款
+        LocalDateTime receivedDeadline = LocalDateTime.now().minusDays(AUTO_DAYS);
+        for (Order o : orderRepository.findByStatusAndCreatedAtBefore(OrderStatus.RECEIVED, receivedDeadline)) {
+            if (completeSafe(o, receivedDeadline)) count++;
         }
         return count;
     }
 
-    private boolean finishSafe(Order o, LocalDateTime deadline, boolean fromShipped, String reason) {
+    /** shipped → received（不打款） */
+    private boolean confirmReceivedSafe(Order o, LocalDateTime deadline) {
         try {
-            Boolean done = txTemplate.execute(status -> finish(o, deadline, fromShipped, reason));
+            Boolean done = txTemplate.execute(status -> {
+                Order order = orderRepository.findByIdForUpdate(o.getId()).orElse(null);
+                if (order == null || !OrderStatus.SHIPPED.equals(order.getStatus())) {
+                    return false;
+                }
+                LocalDateTime since = order.getShippedAt() != null ? order.getShippedAt() : order.getCreatedAt();
+                if (since.isAfter(deadline)) {
+                    return false;
+                }
+                order.setStatus(OrderStatus.RECEIVED);
+                order.setReceivedAt(LocalDateTime.now());
+                orderRepository.save(order);
+                notificationService.push(order.getUsername(), "order", "已自动确认收货",
+                        "「" + order.getProductName() + "」超时未确认，系统已自动确认收货，评价缓冲期后自动完成",
+                        "order", String.valueOf(order.getId()));
+                notificationService.push(order.getSellerUsername(), "order", "买家已确认收货",
+                        "「" + order.getProductName() + "」系统已自动确认收货，缓冲期结束后结算货款",
+                        "order", String.valueOf(order.getId()));
+                return true;
+            });
             return Boolean.TRUE.equals(done);
         } catch (Exception e) {
-            log.warn("[AutoComplete] 订单 {} 失败: {}", o.getId(), e.getMessage());
+            log.warn("[AutoComplete] 订单 {} 自动确认收货失败: {}", o.getId(), e.getMessage());
             return false;
         }
     }
 
-    /**
-     * 逐单加锁并复核状态，防止与手动完成/取消并发时双重打款或脏写。
-     * 超时按发货/收货时间判定，避免「下单很久才发货」的单被立刻自动完成。
-     */
-    private boolean finish(Order o, LocalDateTime deadline, boolean fromShipped, String reason) {
-        Order order = orderRepository.findByIdForUpdate(o.getId()).orElse(null);
-        if (order == null) return false;
-        String expect = fromShipped ? "shipped" : "received";
-        if (!expect.equals(order.getStatus())) {
+    /** received → completed + 打款 */
+    private boolean completeSafe(Order o, LocalDateTime deadline) {
+        try {
+            Boolean done = txTemplate.execute(status -> {
+                Order order = orderRepository.findByIdForUpdate(o.getId()).orElse(null);
+                if (order == null || !OrderStatus.RECEIVED.equals(order.getStatus())) {
+                    return false;
+                }
+                LocalDateTime since = order.getReceivedAt() != null ? order.getReceivedAt() : order.getCreatedAt();
+                if (since.isAfter(deadline)) {
+                    return false;
+                }
+                // 打款仅在 completed 路径；不得从 shipped 直接进来
+                orderService.releaseToSeller(order);
+                order.setStatus(OrderStatus.COMPLETED);
+                orderRepository.save(order);
+                notificationService.push(order.getUsername(), "order", "订单已自动完成",
+                        "「" + order.getProductName() + "」评价缓冲期结束，订单已完成",
+                        "order", String.valueOf(order.getId()));
+                notificationService.push(order.getSellerUsername(), "order", "订单已结算",
+                        "「" + order.getProductName() + "」货款已结算到账",
+                        "order", String.valueOf(order.getId()));
+                return true;
+            });
+            return Boolean.TRUE.equals(done);
+        } catch (Exception e) {
+            log.warn("[AutoComplete] 订单 {} 自动完成失败: {}", o.getId(), e.getMessage());
             return false;
         }
-        LocalDateTime since = fromShipped ? order.getShippedAt() : order.getReceivedAt();
-        if (since == null) since = order.getCreatedAt();
-        if (since.isAfter(deadline)) {
-            return false;
-        }
-        orderService.releaseToSeller(order);
-        order.setStatus("completed");
-        orderRepository.save(order);
-        notificationService.push(order.getUsername(), "order", "订单已自动完成",
-            "「" + order.getProductName() + "」" + reason + "，货款已结算给卖家",
-            "order", String.valueOf(order.getId()));
-        notificationService.push(order.getSellerUsername(), "order", "订单已结算",
-            "「" + order.getProductName() + "」" + reason + "，货款已到账",
-            "order", String.valueOf(order.getId()));
-        return true;
     }
 }

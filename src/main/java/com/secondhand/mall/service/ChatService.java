@@ -178,6 +178,9 @@ public class ChatService {
         ChatRoom room = chatRoomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("聊天室不存在"));
         verifyRoomMember(room, username);
+        if (room.isDeletedFor(username)) {
+            throw new RuntimeException("聊天室不存在");
+        }
 
         if (sinceId != null && sinceId > 0) {
             return chatMessageRepository.findByRoomIdAndIdGreaterThanOrderByIdAsc(roomId, sinceId);
@@ -264,7 +267,8 @@ public class ChatService {
         ChatRoom room = chatRoomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("聊天室不存在"));
         verifyRoomMember(room, username);
-        room.setDeleted(true);
+        // 用户维度逻辑删除：仅自己不可见，对方会话与记录保持
+        room.markDeletedFor(username);
         chatRoomRepository.save(room);
     }
 

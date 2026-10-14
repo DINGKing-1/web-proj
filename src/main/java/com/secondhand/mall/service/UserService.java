@@ -148,6 +148,20 @@ public class UserService {
         return sessionId.equals(storedSessionId);
     }
 
+    /** 当前用户角色（user/admin），供 SessionValidationFilter 桥接 SecurityContext */
+    public String roleOf(String username) {
+        return userRepository.findByUsername(username)
+                .map(u -> u.getRole() == null ? "user" : u.getRole())
+                .orElse("user");
+    }
+
+    /** 是否需要强制修改密码（管理员初始口令等） */
+    public boolean mustChangePassword(String username) {
+        return userRepository.findByUsername(username)
+                .map(u -> Boolean.TRUE.equals(u.getMustChangePassword()))
+                .orElse(false);
+    }
+
     public void setSessionId(String username, String sessionId) {
         userRepository.findByUsername(username).ifPresent(user -> {
             user.setSessionId(sessionId);
@@ -217,6 +231,8 @@ public class UserService {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new RuntimeException("充值金额必须大于 0");
         }
+        // 统一 2 位小数 HALF_UP，防对账漂移
+        amount = amount.setScale(2, java.math.RoundingMode.HALF_UP);
         BigDecimal maxSingle = wallet.getMockRechargeMaxSingle();
         if (maxSingle != null && amount.compareTo(maxSingle) > 0) {
             throw new RuntimeException("单次充值不能超过 ¥" + maxSingle.toPlainString());
@@ -231,7 +247,7 @@ public class UserService {
                 throw new RuntimeException("累计模拟充值已达上限 ¥" + maxCumulative.toPlainString());
             }
         }
-        user.setBalance(user.getBalance().add(amount));
+        user.setBalance(user.getBalance().add(amount).setScale(2, java.math.RoundingMode.HALF_UP));
         User saved = userRepository.save(user);
         // 余额与流水同事务落账，避免只加余额无流水
         walletService.addRecharge(username, amount.toPlainString());
@@ -322,6 +338,7 @@ public class UserService {
         emailCodeService.verifyCode(user.getUsername(), user.getEmail(), code, EmailCodeService.PURPOSE_CHANGE);
 
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setMustChangePassword(false);
         user.setSessionId(currentSessionId);
         userRepository.save(user);
     }
@@ -332,7 +349,8 @@ public class UserService {
         }
     }
 
-    /** 注销账号（需密码确认）：软删除进回收站，数据保留以便追回 */
+    /** 注销账号（需密码确认）：软删除进回收站，数据保留以便追回。
+     *  存在已履约订单（已发货/已收货/售后中）时直接拦截，禁止借注销直接退款。 */
     @org.springframework.transaction.annotation.Transactional
     public void deleteAccount(String username, String password) {
         User user = userRepository.findByUsername(username)
@@ -340,6 +358,8 @@ public class UserService {
         if (password == null || password.isEmpty() || !passwordEncoder.matches(password, user.getPassword())) {
             throw new RuntimeException("密码错误");
         }
+        // 前置校验：已履约订单须先完成售后或确认收货，不进入结算逻辑
+        adminService.assertNoFulfilledOrders(username);
         // 软删除：踢下线 + 商品进回收站；业务数据保留，管理员可在回收站恢复
         adminService.softDeleteUser(user, "self");
     }

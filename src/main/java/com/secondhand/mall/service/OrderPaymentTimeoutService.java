@@ -30,15 +30,18 @@ public class OrderPaymentTimeoutService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final NotificationService notificationService;
+    private final StockService stockService;
     private final TransactionTemplate txTemplate;
 
     public OrderPaymentTimeoutService(OrderRepository orderRepository,
                                       ProductRepository productRepository,
                                       NotificationService notificationService,
+                                      StockService stockService,
                                       PlatformTransactionManager transactionManager) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.notificationService = notificationService;
+        this.stockService = stockService;
         this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -83,15 +86,8 @@ public class OrderPaymentTimeoutService {
         }
 
         int qty = order.getQuantity() != null && order.getQuantity() > 0 ? order.getQuantity() : 1;
-        Product product = productRepository.findByIdForUpdate(order.getProductId()).orElse(null);
-        if (product != null) {
-            int restored = product.getQuantity() != null ? product.getQuantity() : 0;
-            product.setQuantity(restored + qty);
-            if (ProductStatus.SOLD.equals(product.getStatus())) {
-                product.setStatus(ProductStatus.ACTIVE);
-            }
-            productRepository.save(product);
-        }
+        // StockService：行锁 + 版本号，防与并发下单/注销结算丢失更新
+        stockService.restore(order.getProductId(), qty);
 
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);

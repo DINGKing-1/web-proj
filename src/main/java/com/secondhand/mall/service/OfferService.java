@@ -108,8 +108,7 @@ public class OfferService {
 
         Product product = productRepository.findById(offer.getProductId())
                 .orElseThrow(() -> new RuntimeException("商品不存在"));
-        if (!ProductStatus.ACTIVE.equals(product.getStatus()) || product.getQuantity() == null
-                || product.getQuantity() < 1) {
+        if (!ProductStatus.ACTIVE.equals(product.getStatus()) || product.getQuantity() == null || product.getQuantity() < 1) {
             offer.setStatus("rejected");
             offer.setRespondedAt(LocalDateTime.now());
             offerRepository.save(offer);

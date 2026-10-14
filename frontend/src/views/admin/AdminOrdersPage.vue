@@ -51,13 +51,18 @@ async function load() {
 async function forceCancel(o) {
   const ok = await confirmDialog({
     title: '强制取消订单',
-    message: `确定强制取消订单「${o.orderNumber || o.id}」并退款给买家吗？`,
-    okText: '强制取消并退款',
+    message: `仅待付款/待发货可强制取消。确定强制取消订单「${o.orderNumber || o.id}」吗？`,
+    okText: '强制取消',
     type: 'warning'
   })
   if (!ok) return
+  const reason = window.prompt('请填写强制取消原因（写入操作日志）', '')
+  if (!reason || !reason.trim()) {
+    showToast('已取消：必须填写原因', 'warning')
+    return
+  }
   actingId.value = o.id
-  const d = await adminApi.forceCancelOrder(o.id)
+  const d = await adminApi.forceCancelOrder(o.id, reason.trim())
   actingId.value = null
   if (d.success) {
     showToast(d.message || '已强制取消')

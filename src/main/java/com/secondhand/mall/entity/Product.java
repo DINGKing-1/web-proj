@@ -60,6 +60,15 @@ public class Product {
     @Column(nullable = false)
     private Integer quantity = 1;
 
+    /** 占用库存：已下单/已付款未终结订单占用的数量（总库存 quantity ≥ 占用） */
+    @Column(nullable = false)
+    private Integer reservedQuantity = 0;
+
+    /** 乐观锁版本号：库存等并发更新冲突检测与重试兜底 */
+    @Version
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private Long version;
+
     @Column(nullable = false, length = 20)
     private String status;
 
@@ -87,6 +96,7 @@ public class Product {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (status == null) status = "active";
         if (quantity == null) quantity = 1;
+        if (reservedQuantity == null) reservedQuantity = 0;
         if (viewCount == null) viewCount = 0;
     }
 
@@ -175,6 +185,19 @@ public class Product {
 
     public Integer getQuantity() { return quantity; }
     public void setQuantity(Integer quantity) { this.quantity = quantity; }
+
+    public Integer getReservedQuantity() { return reservedQuantity; }
+    public void setReservedQuantity(Integer reservedQuantity) { this.reservedQuantity = reservedQuantity; }
+
+    /** 可售库存 = 总库存 - 占用 */
+    public int getAvailableQuantity() {
+        int total = quantity != null ? quantity : 0;
+        int reserved = reservedQuantity != null ? reservedQuantity : 0;
+        return Math.max(0, total - reserved);
+    }
+
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

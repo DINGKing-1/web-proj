@@ -32,17 +32,20 @@ public class ProductService {
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final SensitiveWordService sensitiveWordService;
+    private final StockService stockService;
 
     /** 是否要求人工审核后才能上架（mall.product.review-required，默认开） */
     @org.springframework.beans.factory.annotation.Value("${mall.product.review-required:true}")
     private boolean reviewRequired = true;
 
     public ProductService(ProductRepository productRepository, UserRepository userRepository,
-                          OrderRepository orderRepository, SensitiveWordService sensitiveWordService) {
+                          OrderRepository orderRepository, SensitiveWordService sensitiveWordService,
+                          StockService stockService) {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.orderRepository = orderRepository;
         this.sensitiveWordService = sensitiveWordService;
+        this.stockService = stockService;
     }
 
     private volatile Map<Long, Long> salesCache;
@@ -143,6 +146,9 @@ public class ProductService {
         }
         if (product.getQuantity() == null || product.getQuantity() < 1) {
             product.setQuantity(1);
+        }
+        if (product.getReservedQuantity() == null) {
+            product.setReservedQuantity(0);
         }
         sensitiveWordService.check(product.getName(), product.getDescription());
         // 发布审核：开启时先挂 pending，管理员通过才上前台
@@ -261,9 +267,11 @@ public class ProductService {
         return related;
     }
 
+    @org.springframework.transaction.annotation.Transactional
     @CacheEvict(cacheNames = {"productList", "productDetail"}, allEntries = true)
     public Product updateProduct(Long id, Product updates, String currentUsername) {
-        Product product = productRepository.findById(id)
+        // 行锁加载：改库存/状态与下单回补并发时不丢更新
+        Product product = productRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new RuntimeException("商品不存在"));
 
         if (!product.getSellerUsername().equals(currentUsername)) {
@@ -281,7 +289,19 @@ public class ProductService {
         if (updates.getSecondHandPrice() != null) product.setSecondHandPrice(updates.getSecondHandPrice());
         if (updates.getItemCondition() != null) product.setItemCondition(updates.getItemCondition());
         if (updates.getImageUrl() != null) product.setImageUrl(updates.getImageUrl());
-        if (updates.getQuantity() != null) product.setQuantity(updates.getQuantity());
+        if (updates.getQuantity() != null) {
+            // 库存 = 可售 + 占用；卖家仅可改可售库存，修改值不得低于已付款订单占用量
+            int newQty = updates.getQuantity();
+            int occupied = orderRepository.sumPaidOccupiedQuantityByProductId(id);
+            if (newQty < occupied) {
+                throw new RuntimeException("可售库存不得低于已付款订单占用量（" + occupied + " 件）");
+            }
+            int reserved = product.getReservedQuantity() != null ? product.getReservedQuantity() : 0;
+            if (newQty < reserved) {
+                throw new RuntimeException("可售库存不得低于在途占用（" + reserved + " 件）");
+            }
+            product.setQuantity(newQty);
+        }
 
         if (underReview) {
             // 待审/驳回由审核流程接管：卖家改内容一律重新排队，不能自己改成在售
@@ -303,6 +323,7 @@ public class ProductService {
         if (product.getQuantity() != null && product.getQuantity() < 0) {
             throw new RuntimeException("库存不能为负数");
         }
+
         // 合并后再校验：客户端没传的字段以原值参与检查，避免漏检
         sensitiveWordService.check(product.getName(), product.getDescription());
 
@@ -428,16 +449,8 @@ public class ProductService {
 
     @CacheEvict(cacheNames = {"productList", "productDetail"}, allEntries = true)
     public void markAsSold(Long productId) {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("商品不存在"));
-        int qty = product.getQuantity() != null ? product.getQuantity() : 1;
-        if (qty <= 1) {
-            product.setQuantity(0);
-            product.setStatus(ProductStatus.SOLD);
-        } else {
-            product.setQuantity(qty - 1);
-        }
-        productRepository.save(product);
+        // StockService：行锁 + 版本号自动重试
+        stockService.markSold(productId);
     }
 
     /**

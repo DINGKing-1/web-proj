@@ -989,7 +989,7 @@ onMounted(load)
             </template>
             <hr class="divider" />
             <h3 class="h3 mb-2">注销账号</h3>
-            <p class="muted text-sm mb-3">注销后账号进入回收站，可联系管理员恢复。若存在进行中订单，系统会先自动退款并释放库存。</p>
+            <p class="muted text-sm mb-3">注销后账号进入回收站，可联系管理员恢复。待付款/未发货订单会关单退款并释放库存；已发货、已收货或售后中订单需先完成售后或确认收货，否则无法注销。</p>
             <button class="btn btn-danger" @click="showDelete = true">
               <i class="fas fa-user-slash"></i> 注销账号
             </button>

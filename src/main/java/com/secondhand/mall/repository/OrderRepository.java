@@ -4,7 +4,6 @@ import com.secondhand.mall.entity.Order;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -19,16 +18,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByProductIdInOrderByCreatedAtDesc(List<Long> productIds);
     List<Order> findByProductIdInAndStatusOrderByCreatedAtDesc(List<Long> productIds, String status);
 
-    @Modifying
-    @Query("DELETE FROM Order o WHERE o.username = :username")
-    void deleteByUsername(@Param("username") String username);
-
-    /** 删除用户作为卖家的订单（用户清理时买家侧之外的补充） */
-    @Modifying
-    @Query("DELETE FROM Order o WHERE o.sellerUsername = :username")
-    void deleteBySellerUsername(@Param("username") String username);
-
-    /** 订单行悲观锁：状态流转/取消/退款用，防并发双写 */
+    /** 订单行悲观锁：状态流转/取消/退款用，防并发双写。锁超时由连接层 innodb_lock_wait_timeout 控制 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM Order o WHERE o.id = :id")
     Optional<Order> findByIdForUpdate(@Param("id") Long id);
@@ -64,6 +54,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     /** 销量统计：按商品聚合已付款且未取消/未退款订单的件数（quantity 为空按 1 计；待付款不算成交） */
     @Query("SELECT o.productId, COALESCE(SUM(CASE WHEN o.quantity IS NULL THEN 1 ELSE o.quantity END), 0) FROM Order o WHERE o.status NOT IN ('cancelled','refunded','pending_payment') GROUP BY o.productId")
     List<Object[]> countSalesByProductId();
+
+    /** 已付款订单占用库存：已付款且货权未终结（可退/在途）的订单件数 */
+    @Query("SELECT COALESCE(SUM(CASE WHEN o.quantity IS NULL THEN 1 ELSE o.quantity END), 0) FROM Order o WHERE o.productId = :productId AND o.status IN ('unshipped','shipped','received','after_sale','return_shipping','return_sent')")
+    int sumPaidOccupiedQuantityByProductId(@Param("productId") Long productId);
 
     List<Order> findAllByOrderByCreatedAtDesc();
 }

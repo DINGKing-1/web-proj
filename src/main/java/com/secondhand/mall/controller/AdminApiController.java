@@ -1,5 +1,6 @@
 package com.secondhand.mall.controller;
 
+import com.secondhand.mall.aspect.Audited;
 import com.secondhand.mall.exception.ForbiddenException;
 
 import com.secondhand.mall.dto.LoginRequest;
@@ -226,13 +227,24 @@ public class AdminApiController extends BaseApiController {
         }
     }
 
-    /** 强制取消订单并退?*/
+    /** 强制取消订单并退款（仅待付款/待发货；已履约须走售后） */
+    @Audited(action = "强制取消订单", targetType = "order")
     @PostMapping("/orders/{id}/force-cancel")
-    public Map<String, Object> forceCancelOrder(@PathVariable Long id, HttpSession session) {
+    public Map<String, Object> forceCancelOrder(@PathVariable Long id,
+                                                @RequestBody(required = false) Map<String, String> body,
+                                                HttpSession session) {
         try {
-            checkAdmin(session);
-            Order order = orderService.adminForceCancel(id);
-            return ok("已强制取消并退").put("order", order).toMap();
+            // 二次校验：会话 + 落库角色，仅管理员可操作
+            String username = (String) session.getAttribute("username");
+            if (username == null || !adminService.isAdmin(username)) {
+                throw new com.secondhand.mall.exception.ForbiddenException("无管理员权限");
+            }
+            String reason = body == null ? null : body.get("reason");
+            if (reason == null || reason.isBlank()) {
+                return fail("请填写强制取消原因").toMap();
+            }
+            Order order = orderService.adminForceCancel(id, username, reason);
+            return ok("已强制取消").put("order", order).toMap();
         } catch (RuntimeException e) {
             return fail(e.getMessage()).toMap();
         }

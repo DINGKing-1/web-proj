@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS products (
     seller_avatar VARCHAR(255),
     image_url TEXT,
     quantity INT NOT NULL DEFAULT 1,
+    reserved_quantity INT NOT NULL DEFAULT 0,
+    version BIGINT NOT NULL DEFAULT 0,
     status VARCHAR(20) DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -113,6 +115,9 @@ CREATE TABLE IF NOT EXISTS chat_rooms (
     last_message_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user1_unread INT NOT NULL DEFAULT 0,
     user2_unread INT NOT NULL DEFAULT 0,
+    deleted BIT(1) NOT NULL DEFAULT 0,
+    deleted_by_user1 BIT(1) NOT NULL DEFAULT 0,
+    deleted_by_user2 BIT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

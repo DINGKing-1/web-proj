@@ -14,7 +14,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 邮箱验证码（找回密码 / 登录后修改密码）。
- * 配置了 MAIL_USERNAME 时走真实 SMTP 发信；否则开发模式：验证码打进日志，便于本地联调。
+ * 配置了 MAIL_USERNAME 时走真实 SMTP 发信；验证码绝不写入日志，无 SMTP 时仅存存储并告警。
  * 不同用途的验证码相互隔离，找回密码的码不能拿来改密，反之亦然。
  */
 @Service
@@ -94,17 +94,12 @@ public class EmailCodeService {
                 sender.send(message);
                 log.info("[Mail] {}验证码已发送至 {}", isEmail ? "绑邮" : isChange ? "改密" : "重置", mask(email));
             } catch (Exception e) {
-                log.warn("[Mail] 发送失败（{}），验证码已生成但不落日志。原因: {}", mask(email), e.getMessage());
-                if (logMailCodes) {
-                    log.info("[Mail][DEV] {} 验证码: {}", mask(email), code);
-                }
+                // 禁止日志输出验证码等敏感信息，统一脱敏
+                log.warn("[Mail] 发送失败（{}），验证码已生成并仅存存储不落日志。原因: {}", mask(email), e.getMessage());
             }
         } else {
-            if (logMailCodes) {
-                log.info("[Mail][DEV] 未配置 SMTP，验证码（仅开发可见）→ {} : {}", mask(email), code);
-            } else {
-                log.warn("[Mail] 未配置 SMTP 且未开启 log-mail-codes，验证码无法送达 {}", mask(email));
-            }
+            // 无 SMTP：验证码仅存存储，不打日志；触发配置告警
+            log.warn("[Mail][CONFIG] 未配置 SMTP，验证码已生成但无法送达 {}。请配置 spring.mail.* / MAIL_* 环境变量后重试。", mask(email));
         }
     }
 

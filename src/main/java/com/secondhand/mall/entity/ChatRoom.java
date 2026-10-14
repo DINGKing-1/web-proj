@@ -43,6 +43,13 @@ public class ChatRoom {
     @Column(nullable = false)
     private Boolean deleted = false;
 
+    /** 用户维度逻辑删除：一方删除不影响另一方 */
+    @Column(nullable = false)
+    private Boolean deletedByUser1 = false;
+
+    @Column(nullable = false)
+    private Boolean deletedByUser2 = false;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
@@ -50,6 +57,8 @@ public class ChatRoom {
         if (user1Unread == null) user1Unread = 0;
         if (user2Unread == null) user2Unread = 0;
         if (deleted == null) deleted = false;
+        if (deletedByUser1 == null) deletedByUser1 = false;
+        if (deletedByUser2 == null) deletedByUser2 = false;
         if (roomType == null) roomType = "seller";
         if (productId == null) productId = 0L;
     }
@@ -88,4 +97,25 @@ public class ChatRoom {
 
     public Boolean getDeleted() { return deleted; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }
+
+    public Boolean getDeletedByUser1() { return deletedByUser1; }
+    public void setDeletedByUser1(Boolean deletedByUser1) { this.deletedByUser1 = deletedByUser1; }
+
+    public Boolean getDeletedByUser2() { return deletedByUser2; }
+    public void setDeletedByUser2(Boolean deletedByUser2) { this.deletedByUser2 = deletedByUser2; }
+
+    /** 指定用户是否已删除该会话 */
+    public boolean isDeletedFor(String username) {
+        if (username == null) return true;
+        if (username.equals(user1Username)) return Boolean.TRUE.equals(deletedByUser1);
+        if (username.equals(user2Username)) return Boolean.TRUE.equals(deletedByUser2);
+        return true;
+    }
+
+    /** 标记指定用户删除 */
+    public void markDeletedFor(String username) {
+        if (username == null) return;
+        if (username.equals(user1Username)) deletedByUser1 = true;
+        else if (username.equals(user2Username)) deletedByUser2 = true;
+    }
 }

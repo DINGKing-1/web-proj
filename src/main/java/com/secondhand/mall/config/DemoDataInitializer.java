@@ -19,6 +19,7 @@ import com.secondhand.mall.service.WalletService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -36,16 +37,16 @@ import java.util.concurrent.ThreadLocalRandom;
  * 全程幂等——每一步先判断是否已播种，重复启动不会叠加数据。
  * 关闭：mall.demo-data.enabled=false
  *
- * 演示账号统一密码 demo123456：
- *   买家 demo_buyer1/2/3  卖家 demo_seller1/2/3
+ * 演示账号密码随机生成并在启动日志打印，绝不使用固定弱口令。
+ * 仅 dev / test 生效；生产（prod）不加载本类。
  */
 @Component
+@Profile({"dev", "test"})
 @ConditionalOnProperty(name = "mall.demo-data.enabled", havingValue = "true", matchIfMissing = true)
 public class DemoDataInitializer implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DemoDataInitializer.class);
 
-    private static final String PWD = "demo123456";
     private static final String BUYER1 = "demo_buyer1";
     private static final String BUYER2 = "demo_buyer2";
     private static final String BUYER3 = "demo_buyer3";
@@ -135,17 +136,28 @@ public class DemoDataInitializer implements CommandLineRunner {
         createUser(SELLER3, "校园二手君", "seller", 30000);
     }
 
+    /** 演示口令：每次创建随机，只写启动日志，禁止固定弱口令 */
+    private static String randomDemoPassword() {
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+        StringBuilder sb = new StringBuilder(12);
+        for (int i = 0; i < 12; i++) {
+            sb.append(chars.charAt(ThreadLocalRandom.current().nextInt(chars.length())));
+        }
+        return sb.toString();
+    }
+
     private void createUser(String username, String nickname, String kind, double balance) {
         if (userRepository.existsByUsername(username)) return;
         User u = new User();
         u.setUsername(username);
-        u.setPassword(passwordEncoder.encode(PWD));
+        String pwd = randomDemoPassword();
+        u.setPassword(passwordEncoder.encode(pwd));
         u.setNickname(nickname);
         u.setBalance(BigDecimal.valueOf(balance));
         u.setRole("user");
         u.setEmail(username + "@demo.local");
         userRepository.save(u);
-        log.info("✓ 演示{}账号已创建: {} / {}", kind, username, PWD);
+        log.info("✓ 演示{}账号已创建: {} / {}", kind, username, pwd);
     }
 
     // ========== 2. 商品 ==========

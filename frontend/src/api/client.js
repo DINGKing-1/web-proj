@@ -13,12 +13,33 @@ function isAuthPath(path) {
   return path === '/admin' ? false : path.startsWith('/admin')
 }
 
+function getCookie(name) {
+  const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)')
+  return m ? decodeURIComponent(m.pop()) : ''
+}
+
+let csrfReady = null
+async function ensureCsrfToken() {
+  if (!csrfReady) {
+    csrfReady = fetch('/api/csrf', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+  }
+  return csrfReady
+}
+
 async function request(url, options = {}) {
   const headers = { ...(options.headers || {}) }
   const method = (options.method || 'GET').toUpperCase()
-  // CSRF：写操作必须带自定义头（跨站表单无法伪造），服务端 ApiCsrfHeaderFilter 校验
+  // CSRF：写操作必须带自定义头 + CSRF Token（跨站表单无法伪造），服务端双重校验
   if (method !== 'GET' && method !== 'HEAD') {
     headers['X-Requested-With'] = headers['X-Requested-With'] || 'XMLHttpRequest'
+    await ensureCsrfToken()
+    const csrf = getCookie('XSRF-TOKEN') || getCookie('X-CSRF-TOKEN')
+    if (csrf) {
+      headers['X-XSRF-TOKEN'] = csrf
+      headers['X-CSRF-Token'] = csrf
+    }
   }
   let body
 

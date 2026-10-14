@@ -129,4 +129,75 @@ class CouponServiceTest {
         assertEquals("unused", after.getStatus());
         assertNull(after.getUsedOrderId());
     }
-}
+
+    /** B-04：可用券与核销同门槛——订单实付总额不达标不得出现在可用列表 */
+    @Test
+    void testListUsable_SameThresholdAsConsume() {
+        Coupon highMin = createCoupon(10, new BigDecimal("15"), new BigDecimal("200"), 5);
+        Coupon lowMin = createCoupon(10, new BigDecimal("10"), new BigDecimal("50"), 5);
+        createUser("buyer1", 100);
+        UserCoupon ucHigh = couponService.claim("buyer1", highMin.getId());
+        couponService.claim("buyer1", lowMin.getId());
+
+        // 订单 80：只有满 50 可用
+        var usable = couponService.listUsable("buyer1", new BigDecimal("80"));
+        assertEquals(1, usable.size());
+        assertEquals(lowMin.getCode(), usable.get(0).get("code"));
+
+        // 同金额下核销高门槛券必须失败，与列表口径一致
+        assertThrows(RuntimeException.class,
+                () -> couponService.consume("buyer1", ucHigh.getId(), 1L, new BigDecimal("80")),
+                "总金额不满门槛不得核销");
+    }
+
+    /** B-04：订单金额异常时核销直接失败 */
+    @Test
+    void testConsume_NullOrZeroAmount_ShouldThrow() {
+        Coupon c = createCoupon(10, new BigDecimal("10"), BigDecimal.ZERO, 5);
+        createUser("buyer1", 100);
+        UserCoupon uc = couponService.claim("buyer1", c.getId());
+
+        assertThrows(RuntimeException.class,
+                () -> couponService.consume("buyer1", uc.getId(), 1L, null));
+        assertThrows(RuntimeException.class,
+                () -> couponService.consume("buyer1", uc.getId(), 1L, BigDecimal.ZERO));
+    }
+
+    /** B-04：listUsable 与 consume 对同一金额判定一致 */
+    @Test
+    void testListUsable_EmptyWhenBelowAllMins() {
+        Coupon c = createCoupon(10, new BigDecimal("15"), new BigDecimal("100"), 5);
+        createUser("buyer1", 100);
+        couponService.claim("buyer1", c.getId());
+
+        assertTrue(couponService.listUsable("buyer1", new BigDecimal("99")).isEmpty());
+        assertEquals(1, couponService.listUsable("buyer1", new BigDecimal("100")).size());
+    }
+
+    @Test
+    void createCoupon_DuplicateCode_ShouldReject() {
+        Coupon first = new Coupon();
+        first.setCode("DUP-CODE-001");
+        first.setName("重复编码券");
+        first.setDiscountAmount(new BigDecimal("10.00"));
+        first.setMinAmount(new BigDecimal("0"));
+        first.setTotalQuantity(10);
+        first.setPerUserLimit(1);
+        first.setStartAt(java.time.LocalDateTime.now().minusDays(1));
+        first.setEndAt(java.time.LocalDateTime.now().plusDays(1));
+        first.setEnabled(true);
+        couponService.createCoupon(first);
+
+        Coupon second = new Coupon();
+        second.setCode("DUP-CODE-001");
+        second.setName("重复编码券2");
+        second.setDiscountAmount(new BigDecimal("5.00"));
+        second.setMinAmount(new BigDecimal("0"));
+        second.setTotalQuantity(10);
+        second.setPerUserLimit(1);
+        second.setStartAt(java.time.LocalDateTime.now().minusDays(1));
+        second.setEndAt(java.time.LocalDateTime.now().plusDays(1));
+        second.setEnabled(true);
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+                () -> couponService.createCoupon(second));
+    }}

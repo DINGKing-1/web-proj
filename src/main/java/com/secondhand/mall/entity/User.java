@@ -36,6 +36,10 @@ public class User {
     @Column(nullable = false)
     private Boolean banned = false;
 
+    /** 首次登录强制改密（管理员初始口令等） */
+    @Column(nullable = false)
+    private Boolean mustChangePassword = false;
+
     /** 软删除标记：注销/管理员删除后进回收站，可恢复 */
     @Column(nullable = false)
     private Boolean deleted = Boolean.FALSE;
@@ -64,6 +68,7 @@ public class User {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (role == null) role = "user";
         if (banned == null) banned = false;
+        if (mustChangePassword == null) mustChangePassword = false;
         if (deleted == null) deleted = false;
         if (balance == null) balance = new BigDecimal("10000.00");
         if (avatar == null) avatar = "/user-avatar/default.jpg";
@@ -103,6 +108,9 @@ public class User {
 
     public Boolean getBanned() { return banned; }
     public void setBanned(Boolean banned) { this.banned = banned; }
+
+        public Boolean getMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(Boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
 
     public Boolean getDeleted() { return deleted; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }

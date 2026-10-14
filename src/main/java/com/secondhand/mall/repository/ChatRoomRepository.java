@@ -24,10 +24,10 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
     @Query("SELECT r FROM ChatRoom r WHERE (r.user1Username = :u1 AND r.user2Username = :u2) OR (r.user1Username = :u2 AND r.user2Username = :u1)")
     Optional<ChatRoom> findByUsers(@Param("u1") String user1, @Param("u2") String user2);
 
-    @Query("SELECT r FROM ChatRoom r WHERE (r.user1Username = :username OR r.user2Username = :username) AND r.deleted = false AND r.lastMessage IS NOT NULL AND r.lastMessage != '' ORDER BY r.lastMessageTime DESC")
+    @Query("SELECT r FROM ChatRoom r WHERE (r.user1Username = :username OR r.user2Username = :username) AND r.deleted = false AND r.lastMessage IS NOT NULL AND r.lastMessage != '' AND ((r.user1Username = :username AND r.deletedByUser1 = false) OR (r.user2Username = :username AND r.deletedByUser2 = false)) ORDER BY r.lastMessageTime DESC")
     List<ChatRoom> findActiveByUsername(@Param("username") String username);
 
-    @Query("SELECT r FROM ChatRoom r WHERE (r.user1Username = :username OR r.user2Username = :username) AND r.deleted = false")
+    @Query("SELECT r FROM ChatRoom r WHERE (r.user1Username = :username OR r.user2Username = :username) AND r.deleted = false AND ((r.user1Username = :username AND r.deletedByUser1 = false) OR (r.user2Username = :username AND r.deletedByUser2 = false))")
     List<ChatRoom> findByUsername(@Param("username") String username);
 
     @Modifying
