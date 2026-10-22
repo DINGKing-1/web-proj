@@ -1,0 +1,36 @@
+# Git / IDE
+.git
+.gitignore
+.idea
+*.iml
+.vscode
+
+# 构建产物（镜像内重新构建）
+target
+frontend/node_modules
+frontend/dist
+.maven
+
+# 本地机密与环境（绝不进镜像）
+config/secrets.properties
+frontend/.env.local
+frontend/.env.*.local
+*.log
+.app.pid
+
+# 用户上传（运行时挂载卷）
+product-images
+user-avatar
+uploads
+
+# 文档与脚本
+docs
+scripts
+.mimocode
+chonggou
+*.md
+!README.md
+
+# Playwright / 测试产物
+.playwright-cli
+.playwright
