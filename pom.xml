@@ -87,11 +87,18 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
-        <!-- MySQL 连接器 -->
+        <!-- MySQL 连接器（本地开发） -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>8.3.0</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- PostgreSQL 连接器（腾讯云托管，profile=pg） -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
 
